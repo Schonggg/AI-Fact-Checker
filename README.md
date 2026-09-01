@@ -31,12 +31,12 @@ AI Fact Checker is a **decentralized "Truth Engine"** that uses multi-model AI (
 
 ## 👥 Team Members
 
-| Role | Name | Contact |
-|------|------|---------|
-| 队员 1 - AI Backend | Jin Yi | +60 18-219 4071 |
-| 队员 2 - Smart Contracts | Lick Bin | +60 10-820 3589 |
-| 队员 3 - Frontend | TBD | TBD |
-| 队员 4 - Pitch & Demo | TBD | TBD |
+| Role | Name |
+|------|------|
+| 队员 1 - AI Backend | PS |
+| 队员 2 - Smart Contracts | PS二儿子 |
+| 队员 3 - Frontend | PS大儿子 |
+| 队员 4 - Pitch & Demo | TBD |
 
 ## 📁 Project Structure
 
