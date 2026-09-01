@@ -1,1 +1,1 @@
-"""
+"""Core configuration - environment variables"""

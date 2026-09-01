@@ -11,7 +11,7 @@ from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 
 # ── Gonka Router 官方网关配置 ────────────────────────
-GONKA_BASE_URL = "https://gonkarouter.io/v1"
+GONKA_BASE_URL = os.getenv("GONKA_BASE_URL", "https://api.gonkarouter.io/v1")
 GONKA_API_KEY = os.getenv("GONKA_API_KEY", "")
 
 # ── 可用模型列表（可按需扩展） ────────────────────────

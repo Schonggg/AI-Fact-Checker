@@ -10,7 +10,7 @@ load_dotenv()  # 加载 .env 文件
 
 # ── Gonka Router（必须） ────────────────────────
 GONKA_API_KEY = os.getenv("GONKA_API_KEY", "")
-GONKA_BASE_URL = os.getenv("GONKA_BASE_URL", "https://gonkarouter.io/v1")
+GONKA_BASE_URL = os.getenv("GONKA_BASE_URL", "https://api.gonkarouter.io/v1")
 
 if not GONKA_API_KEY:
     raise ValueError(

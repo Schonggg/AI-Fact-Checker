@@ -1,1 +1,1 @@
-"""
+"""AI Fact Checker Backend - 队员 1 (Jin Yi)"""
