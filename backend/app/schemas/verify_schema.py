@@ -3,7 +3,7 @@ Pydantic Schemas - 5维雷达图新版验证格式
 队员 1 - AI 后端工程师
 阶段4：数据对齐与Schema规范
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional
 
 
@@ -23,12 +23,13 @@ class RadarMetrics(BaseModel):
 
 
 class EASMetadata(BaseModel):
-    """合约存证所需元数据"""
-    eas_schema: str = Field(default="#gonka-fact-v1", description="EAS Schema ID")
+    """合约存证所需元数据 — JSON输出键为schema以匹配前端"""
+    eas_schema: str = Field(default="#gonka-fact-v1", serialization_alias="schema")
     network: str = Field(default="Arbitrum Sepolia")
     timestamp: str
     ipfs_cid: str
     claim_hash: str
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ReasoningTrace(BaseModel):

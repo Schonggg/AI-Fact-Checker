@@ -412,6 +412,8 @@ def _call_model(config, api_key, claim, article, language):
             "verdict": _normalize_verdict(parsed.get("verdict")),
             "truthScore": _clamp_number(parsed.get("truth_score"), 50),
             "confidence": _clamp_number(parsed.get("confidence"), 50),
+            "request_id": api_response.get("id", ""),  # 🌟 Gonka Request ID（每个模型的推理凭据）
+            "model_display": config["model"],
             "summary": str(parsed.get("summary") or "").strip(),
             "steps": [
                 {
@@ -517,6 +519,9 @@ def _aggregate(claim, article, results, started_at):
             references.append(ref)
 
     summaries = [f"{item['provider']}: {item['summary']}" for item in successful if item.get("summary")]
+    # 收集所有成功模型的 Gonka Request IDs（供合约存证）
+    gonka_request_ids = [item.get("request_id", "") for item in successful if item.get("request_id")]
+
     return {
         "id": f"gnk-{uuid.uuid4().hex[:10]}", "status": "ok" if len(successful) == total else "partial",
         "claim": claim, "inputType": "url" if article else "text", "article": article,
@@ -524,7 +529,9 @@ def _aggregate(claim, article, results, started_at):
         "consensus": f"{agreement_count}/{len(successful)} successful models agree; {len(successful)}/{total} models responded",
         "summary": " ".join(summaries), "metrics": metrics, "models": results,
         "references": references[:20], "riskFlags": risk_flags[:20],
-        "attestation": {"claimHash": claim_hash, "evidenceHash": evidence_hash, "schema": "#gonka-fact-v1", "network": "Base Mainnet", "uid": "pending", "status": "ready_to_mint"},
+        "attestation": {"claimHash": claim_hash, "evidenceHash": evidence_hash, "schema": "#gonka-fact-v1", "network": "Base Sepolia", "uid": "pending", "status": "ready_to_mint",
+                        "gonkaRequestIds": gonka_request_ids,  # 🌟 核心加分项
+                        "timestamp": datetime.now(timezone.utc).isoformat()},
         "createdAt": datetime.now(timezone.utc).isoformat(),
         "latencyMs": round((time.perf_counter() - started_at) * 1000),
     }

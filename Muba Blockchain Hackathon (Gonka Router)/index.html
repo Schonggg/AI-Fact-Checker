@@ -1577,7 +1577,19 @@ function ClaimInput() {
     const { setVerification, setPhase } = useVerify();
     const inputRef = useRef(null);
     const isFilled = text.trim().length > 0;
-    const apiBase = window.GONKA_API_BASE || ((window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost" || window.location.protocol === "file:") ? "http://127.0.0.1:3000" : "");
+    const hasText = text.trim().length > 0;
+    // ── API URL 自适应策略 ──────────────────────────────────────
+    // 1. URL 参数 ?api= 优先（救急/指定备用服务器）
+    // 2. 本地开发 → http://localhost:8000（FastAPI后端）
+    // 3. 生产/线上 → 云端后端URL（部署后替换）
+    const apiBase = (() => {
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get("api")) return urlParams.get("api");                    // ?api=xxx 覆盖（备用服务器/救急）
+        if (window.GONKA_API_BASE) return window.GONKA_API_BASE;                  // 全局配置覆盖
+        const isLocal = window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost" || window.location.protocol === "file:";
+        if (isLocal) return "http://127.0.0.1:3000";                             // 本地→Muba Python后端（含Gonka 3模型+Request ID）
+        return "";                                                                 // 生产→同域/云端（部署后填写）
+    })();
     const verdictMeta = {
         true: { label: "TRUE", color: th.success, mark: "✓" },
         false: { label: "FALSE", color: th.err, mark: "✕" },
@@ -2035,6 +2047,7 @@ function attestationRows(verification) {
         { k: "Network", v: att.network || "Base Mainnet" },
         { k: "Timestamp", v: verification.createdAt ? new Date(verification.createdAt).toLocaleString() : "generated" },
         { k: "Evidence", v: shortHash(att.evidenceHash, 10, 8) },
+        { k: "Gonka Proof IDs", v: (Array.isArray(att.gonkaRequestIds) && att.gonkaRequestIds.length) ? att.gonkaRequestIds.map(rid => shortHash(rid, 8, 6)).join(" · ") : "3-model evidence" },
     ];
 }
 // ═══════════════════════════════════════════════════════════════════════════
