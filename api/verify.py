@@ -1092,4 +1092,10 @@ def vercel_entry(event, context):
 # Ref: https://vercel.com/docs/functions/runtimes/python/api-directory
 # 下面的 vercel_entry / HandlerForVercelWSGI 是旧版 Lambda 适配，现代
 # Vercel 不会再调用它们，保留仅为向后兼容。
-handler = VerifyRequestHandler
+
+# Vercel 的检测器扫描 `class handler(` 模式识别 Python 函数入口。
+# 用 class 定义（而非 handler = VerifyRequestHandler 赋值语句），
+# 确保 Vercel 能检测到此文件为 Serverless Function。
+class handler(VerifyRequestHandler):
+    """Vercel 入口：继承 VerifyRequestHandler 的 do_GET/do_POST/do_OPTIONS。"""
+    pass
