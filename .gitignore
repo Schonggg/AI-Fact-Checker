@@ -22,6 +22,16 @@ build/
 .vscode/
 .idea/
 
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+*$py.class
+
+# npm (local build tools - do not commit)
+package.json
+package-lock.json
+
 # OS
 .DS_Store
 Thumbs.db

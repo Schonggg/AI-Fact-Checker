@@ -2,6 +2,7 @@ import hashlib
 import html
 import ipaddress
 import json
+import logging
 import os
 import re
 import socket
@@ -36,6 +37,12 @@ MAX_INPUT_CHARS = 12000
 MAX_ARTICLE_CHARS = 28000
 REQUEST_TIMEOUT_SECONDS = int(os.environ.get("GONKA_MODEL_TIMEOUT", "45"))
 ARTICLE_TIMEOUT_SECONDS = int(os.environ.get("GONKA_ARTICLE_TIMEOUT", "15"))
+# Kimi 专属超时（秒）：超过即自动降级到 DeepSeek，避免慢模型拖垮整单
+KIMI_TIMEOUT_SECONDS = int(os.environ.get("GONKA_KIMI_MODEL_TIMEOUT", "30"))
+# Vercel maxDuration 预算上限（秒），保证总耗时不被掐断
+MAX_TOTAL_BUDGET_SECONDS = int(os.environ.get("GONKA_TOTAL_BUDGET_SECONDS", "50"))
+# 降级兜底模型
+FALLBACK_MODEL = os.environ.get("GONKA_FALLBACK_MODEL", "deepseek-ai/DeepSeek-V4-Flash-0731")
 def _normalize_gonka_base_url(value):
     """Return the OpenAI-compatible Gonka broker base URL ending in /v1."""
     url = str(value or "https://api.gonkarouter.io/v1").strip().rstrip("/")
@@ -60,16 +67,22 @@ MODEL_CONFIGS = [
         "provider": "DeepSeek",
         "model": os.environ.get("GONKA_DEEPSEEK_MODEL", "deepseek-ai/DeepSeek-V4-Flash-0731"),
         "role": "Adversarial evidence auditor",
+        "timeout": REQUEST_TIMEOUT_SECONDS,
+        "fallback": None,
     },
     {
         "provider": "Kimi",
         "model": os.environ.get("GONKA_KIMI_MODEL", "moonshotai/Kimi-K2.6"),
         "role": "Long-context source and timeline analyst",
+        "timeout": KIMI_TIMEOUT_SECONDS,
+        "fallback": FALLBACK_MODEL,
     },
     {
         "provider": "MiniMax",
         "model": os.environ.get("GONKA_MINIMAX_MODEL", "MiniMaxAI/MiniMax-M2.7"),
         "role": "Logic, framing, and consensus verifier",
+        "timeout": REQUEST_TIMEOUT_SECONDS,
+        "fallback": None,
     },
 ]
 
@@ -332,6 +345,144 @@ def _get_models(api_key):
     return [item.get("id") for item in payload.get("data", []) if item.get("id")]
 
 
+def _gonka_raw_call(api_key, model, system_prompt, user_prompt, temperature=0.2, timeout=None):
+    """Generic sync Gonka call returning (content, request_id). Reused by translation & search."""
+    import json as _json
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": temperature,
+        "max_tokens": 1024,
+    }
+    request = Request(
+        f"{GONKA_BASE_URL}/chat/completions",
+        data=_json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": "Mozilla/5.0 GonkaFactChecker/1.0",
+        },
+        method="POST",
+    )
+    with urlopen(request, timeout=timeout or REQUEST_TIMEOUT_SECONDS) as response:
+        api_response = _json.loads(response.read().decode("utf-8"))
+    message = api_response.get("choices", [{}])[0].get("message", {})
+    content = message.get("content") or message.get("reasoning_content") or message.get("reasoning") or ""
+    return content, api_response.get("id", "")
+
+
+def _translate_to_english(api_key, claim):
+    """
+    中译英：用 DeepSeek 把中文声明翻译成英文。
+    用于提升外网搜索命中率。失败时原样返回。
+    """
+    system = "You are a precise translator. Translate the given claim into clear, factual English. Output ONLY the English translation, nothing else."
+    try:
+        en, _reqid = _gonka_raw_call(
+            api_key,
+            MODEL_CONFIGS[0]["model"],  # DeepSeek（高可用）
+            system,
+            f"Translate this claim to English:\n{claim}",
+            temperature=0.1,
+            timeout=25,
+        )
+        en = en.strip()
+        if en and len(en) > 3:
+            return en
+    except Exception as exc:
+        logging.warning(f"[translate] failed, using original: {exc}")
+    return claim
+
+
+def _discover_sources(api_key, claim, english_claim):
+    """
+    来源发现：用 DeepSeek 基于（英文）声明生成 3~5 个权威信源（title/url/publisher/stance）。
+    返回 [{title, url, publisher, stance}]。失败时返回空列表（不阻塞主流程）。
+    """
+    combine = english_claim if english_claim != claim else claim
+    system = """You are a fact-checking source researcher. Based on the claim, list 3-5 AUTHORITATIVE real-world sources (news outlets, official reports, research) that would verify or refute it.
+Return ONLY compact JSON array, no markdown:
+[{"title":"...","url":"https://...","publisher":"...","relevance":0-100,"credibility":0-100,"stance":"supports|contradicts|unclear"}]"""
+    try:
+        content, _reqid = _gonka_raw_call(
+            api_key,
+            MODEL_CONFIGS[0]["model"],  # DeepSeek
+            system,
+            f"Claim:\n{combine}",
+            temperature=0.1,
+            timeout=30,
+        )
+        parsed = _extract_json(content)
+        if isinstance(parsed, list):
+            out = []
+            for item in parsed[:5]:
+                if not isinstance(item, dict):
+                    continue
+                url = str(item.get("url") or "").strip()
+                # 只保留 https 真实URL，过滤假的占位 URL
+                if url and (url.startswith("https://") or url.startswith("http://")):
+                    out.append({
+                        "title": str(item.get("title") or "Source").strip()[:200],
+                        "url": url,
+                        "publisher": str(item.get("publisher") or "").strip()[:100],
+                        "relevance": _clamp_number(item.get("relevance"), 70),
+                        "credibility": _clamp_number(item.get("credibility"), 60),
+                        "stance": str(item.get("stance") or "unclear").strip().lower(),
+                        "sourceType": "research",
+                    })
+            return out
+        return []
+    except Exception as exc:
+        logging.warning(f"[sources] discovery failed: {exc}")
+        return []
+
+
+def _search_tavily(query, max_results=5):
+    """
+    Tavily 实时外网搜索（仅用于搜索真实来源，不用于分析/推理）。
+    返回 [{title, url, content, publishedAt}]。失败时返回空列表。
+    """
+    tavily_key = os.environ.get("TAVILY_API_KEY", "")
+    if not tavily_key:
+        logging.warning("[search] TAVILY_API_KEY missing, skipping web search")
+        return []
+    try:
+        request = Request(
+            "https://api.tavily.com/search",
+            data=json.dumps({
+                "api_key": tavily_key,
+                "query": query,
+                "max_results": max_results,
+                "include_answer": False,
+                "include_raw_content": False,
+                "search_depth": "advanced",
+            }).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(request, timeout=20) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        out = []
+        for item in payload.get("results", [])[:max_results]:
+            url = str(item.get("url") or "").strip()
+            if url.startswith("https://") or url.startswith("http://"):
+                out.append({
+                    "title": str(item.get("title") or "Source").strip()[:200],
+                    "url": url,
+                    "publisher": str(item.get("domain") or "").strip()[:100],
+                    "content": str(item.get("content") or "")[:800],
+                    "publishedAt": "",
+                })
+        return out
+    except Exception as exc:
+        logging.warning(f"[search] Tavily failed: {exc}")
+        return []
+
+
 def _normalize_reference(reference, article):
     if not isinstance(reference, dict):
         return None
@@ -353,7 +504,7 @@ def _normalize_reference(reference, article):
     }
 
 
-def _call_model(config, api_key, claim, article, language):
+def _call_model(config, api_key, claim, article, language, search_results=None):
     started = time.perf_counter()
     result = {
         "provider": config["provider"],
@@ -371,80 +522,121 @@ def _call_model(config, api_key, claim, article, language):
             f"PUBLISHED AT: {article['publishedAt'] or 'not found'}\n"
             f"EXTRACTED ARTICLE TEXT:\n{article['text']}"
         )
+    search_context = ""
+    if search_results:
+        lines = ["REAL-TIME WEB SEARCH RESULTS (use as primary evidence for fact-checking):"]
+        for i, item in enumerate(search_results, 1):
+            title = str(item.get("title") or "Source")
+            url = str(item.get("url") or "")
+            publisher = str(item.get("publisher") or "")
+            content = str(item.get("content") or "")[:3000]
+            lines.append(f"[{i}] {title}")
+            if publisher:
+                lines.append(f"    Publisher: {publisher}")
+            if url:
+                lines.append(f"    URL: {url}")
+            if content:
+                lines.append(f"    Content: {content}")
+        search_context = "\n".join(lines)
     user_prompt = (
         f"Answer language: {language}\n\n"
         f"CLAIM OR USER INPUT:\n{claim}\n\n"
         f"AVAILABLE EVIDENCE:\n{article_context}\n\n"
-        "Perform the independent fact-check now and return only the required JSON."
+        + (f"REAL-TIME WEB SEARCH RESULTS (use these as real, externally-verified sources; you may cite their URLs in references):\n{search_context}\n\n" if search_context else "")
+        + "Perform the independent fact-check now and return only the required JSON."
     )
-    payload = {
-        "model": config["model"],
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt},
-        ],
-        "temperature": 0.1,
-        "max_tokens": 3200,
-        "stream": False,
-    }
-    request = Request(
-        f"{GONKA_BASE_URL}/chat/completions",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "User-Agent": "Mozilla/5.0 GonkaFactChecker/1.0",
-        },
-        method="POST",
-    )
-    try:
-        with urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
+    timeout_seconds = config.get("timeout", REQUEST_TIMEOUT_SECONDS)
+
+    def _attempt(model_id, timeout):
+        """单次 Gonka 调用，成功返回 (parsed_dict, request_id, usage, router)，失败抛异常。"""
+        payload = {
+            "model": model_id,
+            "messages": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": 0.1,
+            "max_tokens": 3200,
+            "stream": False,
+        }
+        request = Request(
+            f"{GONKA_BASE_URL}/chat/completions",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "User-Agent": "Mozilla/5.0 GonkaFactChecker/1.0",
+            },
+            method="POST",
+        )
+        with urlopen(request, timeout=timeout) as response:
             api_response = json.loads(response.read().decode("utf-8"))
         message = api_response.get("choices", [{}])[0].get("message", {})
         content = message.get("content") or message.get("reasoning_content") or message.get("reasoning") or ""
         parsed = _extract_json(content)
-        metrics = parsed.get("metrics") if isinstance(parsed.get("metrics"), dict) else {}
-        steps = parsed.get("reasoning_steps") if isinstance(parsed.get("reasoning_steps"), list) else []
-        references = parsed.get("references") if isinstance(parsed.get("references"), list) else []
-        result.update({
-            "status": "ok",
-            "verdict": _normalize_verdict(parsed.get("verdict")),
-            "truthScore": _clamp_number(parsed.get("truth_score"), 50),
-            "confidence": _clamp_number(parsed.get("confidence"), 50),
-            "request_id": api_response.get("id", ""),  # 🌟 Gonka Request ID（每个模型的推理凭据）
-            "model_display": config["model"],
-            "summary": str(parsed.get("summary") or "").strip(),
-            "steps": [
-                {
-                    "label": str(step.get("label") or "Verification step").strip(),
-                    "status": str(step.get("status") or "info").strip().lower(),
-                    "detail": str(step.get("detail") or "").strip(),
-                }
-                for step in steps if isinstance(step, dict)
-            ][:10],
-            "metrics": {
-                "factualAccuracy": _clamp_number(metrics.get("factual_accuracy"), 50),
-                "sourceQuality": _clamp_number(metrics.get("source_quality"), 50),
-                "logicalConsistency": _clamp_number(metrics.get("logical_consistency"), 50),
-                "biasNeutrality": _clamp_number(metrics.get("bias_neutrality"), 50),
-                "temporalConsistency": _clamp_number(metrics.get("temporal_consistency"), 50),
-            },
-            "references": [ref for ref in (_normalize_reference(item, article) for item in references) if ref],
-            "riskFlags": [str(flag).strip() for flag in parsed.get("risk_flags", []) if str(flag).strip()][:12],
-            "usage": api_response.get("usage", {}),
-            "router": api_response.get("x_gonka") or api_response.get("x_joingonka") or {},
-        })
-    except HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")[:1000]
-        result.update({"status": "error", "error": _format_http_error(exc, detail)})
-    except (URLError, TimeoutError) as exc:
-        result.update({"status": "error", "error": _format_connection_error(exc)})
+        return parsed, api_response.get("id", ""), api_response.get("usage", {}), (api_response.get("x_gonka") or api_response.get("x_joingonka") or {})
+
+    try:
+        # 1) 尝试主模型（Kimi 用更短超时）
+        (parsed, request_id, usage, router) = _attempt(config["model"], timeout_seconds)
+        model_used = config["model"]
+        fell_back = False
+    except (HTTPError, URLError, TimeoutError) as exc:
+        # 2) 主模型超时/失败 + 配置了兜底模型 → 降级 DeepSeek
+        fallback = config.get("fallback")
+        if fallback and fallback != config["model"]:
+            try:
+                (parsed, request_id, usage, router) = _attempt(fallback, REQUEST_TIMEOUT_SECONDS)
+                model_used = fallback
+                fell_back = True
+            except Exception as exc2:
+                latency_ms = round((time.perf_counter() - started) * 1000)
+                return _fallback_result(config, claim, article, f"Primary {config['model']}: {exc}; fallback {fallback}: {exc2}", latency_ms)
+        else:
+            if isinstance(exc, HTTPError):
+                detail = exc.read().decode("utf-8", errors="replace")[:1000]
+                return _fallback_result(config, claim, article, _format_http_error(exc, detail), round((time.perf_counter() - started) * 1000))
+            return _fallback_result(config, claim, article, _format_connection_error(exc), round((time.perf_counter() - started) * 1000))
     except Exception as exc:
+        # 主模型返回无法解析的 JSON 等非网络异常 → 保守降级为 unverified
         latency_ms = round((time.perf_counter() - started) * 1000)
         return _fallback_result(config, claim, article, f"Invalid model response: {exc}", latency_ms)
-    finally:
-        result["latencyMs"] = round((time.perf_counter() - started) * 1000)
+
+    metrics = parsed.get("metrics") if isinstance(parsed.get("metrics"), dict) else {}
+    steps = parsed.get("reasoning_steps") if isinstance(parsed.get("reasoning_steps"), list) else []
+    references = parsed.get("references") if isinstance(parsed.get("references"), list) else []
+    result.update({
+        "status": "ok",
+        "verdict": _normalize_verdict(parsed.get("verdict")),
+        "truthScore": _clamp_number(parsed.get("truth_score"), 50),
+        "confidence": _clamp_number(parsed.get("confidence"), 50),
+        "request_id": request_id,  # 🌟 Gonka Request ID（每个模型的推理凭据）
+        "model_display": config["model"],
+        "model_used": model_used,  # 实际执行模型（含降级情况）
+        "fell_back": fell_back,
+        "summary": str(parsed.get("summary") or "").strip(),
+        "steps": [
+            {
+                "label": str(step.get("label") or "Verification step").strip(),
+                "status": str(step.get("status") or "info").strip().lower(),
+                "detail": str(step.get("detail") or "").strip(),
+            }
+            for step in steps if isinstance(step, dict)
+        ][:10],
+        "metrics": {
+            "factualAccuracy": _clamp_number(metrics.get("factual_accuracy"), 50),
+            "sourceQuality": _clamp_number(metrics.get("source_quality"), 50),
+            "logicalConsistency": _clamp_number(metrics.get("logical_consistency"), 50),
+            "biasNeutrality": _clamp_number(metrics.get("bias_neutrality"), 50),
+            "temporalConsistency": _clamp_number(metrics.get("temporal_consistency"), 50),
+        },
+        "references": [ref for ref in (_normalize_reference(item, article) for item in references) if ref],
+        "riskFlags": [str(flag).strip() for flag in parsed.get("risk_flags", []) if str(flag).strip()][:12],
+        "usage": usage,
+        "router": router,
+        "latencyMs": round((time.perf_counter() - started) * 1000),
+    })
     return result
 
 
@@ -609,8 +801,50 @@ class handler(BaseHTTPRequestHandler):
             _json_response(self, 400, {"status": "error", "error": "Enable at least two AI agents for adversarial verification."})
             return
         language = str(settings.get("language") or "en")[:20]
+
+        # ── Tavily 实时搜索增强（仅检索真实信源，不用于分析/推理）──
+        # 有文章 URL 时跳过（已用文章原文做证据）；否则翻译→发现信源→Tavily 搜索
+        search_results = []
+        search_summary = None
+        if article is None and claim and settings.get("webSearch", True) is not False:
+            try:
+                search_en = claim
+                # 仅当声明明显非英文时翻译（中→英提升外网命中率）；翻译失败不影响主流程
+                if not re.search(r"[A-Za-z]{4,}", claim):
+                    search_en = _translate_to_english(api_key, claim)
+                discovered = _discover_sources(api_key, claim, search_en)
+                search_query = search_en if search_en else claim
+                for item in discovered:
+                    item["query"] = search_query
+                seen_urls = {item.get("url", "").lower() for item in discovered if item.get("url")}
+                tavily_hits = _search_tavily(search_query, max_results=int(os.environ.get("TAVILY_MAX_RESULTS", "5")))
+                for hit in tavily_hits:
+                    if hit.get("url", "").lower() in seen_urls:
+                        continue
+                    discovered.append(hit)
+                    seen_urls.add(hit.get("url", "").lower())
+                search_results = discovered[: int(os.environ.get("TAVILY_MAX_RESULTS", "5"))]
+                if search_results:
+                    search_summary = {
+                        "query": search_query,
+                        "translated_from_zh": search_en != claim,
+                        "count": len(search_results),
+                        "sources": [
+                            {
+                                "title": item.get("title", "Source"),
+                                "url": item.get("url", ""),
+                                "publisher": item.get("publisher", ""),
+                                "content": item.get("content", "")[:400],
+                                "stance": item.get("stance", "unclear"),
+                            }
+                            for item in search_results
+                        ],
+                    }
+            except Exception as exc:
+                logging.warning(f"[search] web search stage failed (continuing without): {exc}")
+
         with ThreadPoolExecutor(max_workers=len(configs)) as executor:
-            futures = [executor.submit(_call_model, config, api_key, claim, article, language) for config in configs]
+            futures = [executor.submit(_call_model, config, api_key, claim, article, language, search_results) for config in configs]
             results = [future.result() for future in as_completed(futures)]
         order = {config["provider"]: i for i, config in enumerate(MODEL_CONFIGS)}
         results.sort(key=lambda item: order.get(item.get("provider"), 99))
@@ -619,4 +853,25 @@ class handler(BaseHTTPRequestHandler):
             response["articleError"] = article_error
             if "article_fetch_failed" not in response["riskFlags"]:
                 response["riskFlags"].append("article_fetch_failed")
+        # 把 Tavily 检索到的真实信源补充进 references（供前端展示
+        if search_results:
+            existing_urls = {ref.get("url", "").lower() for ref in response.get("references", []) if ref.get("url")}
+            for item in search_results:
+                url = item.get("url", "")
+                if not url or url.lower() in existing_urls:
+                    continue
+                response["references"].append({
+                    "title": str(item.get("title") or "Search result"),
+                    "url": url,
+                    "publisher": str(item.get("publisher") or ""),
+                    "sourceType": "search",
+                    "publishedAt": str(item.get("publishedAt") or ""),
+                    "stance": str(item.get("stance") or "unclear").lower(),
+                    "relevance": _clamp_number(item.get("relevance"), 60),
+                    "credibility": _clamp_number(item.get("credibility"), 55),
+                    "quote": str(item.get("content") or "")[:320],
+                    "citedBy": ["Tavily"],
+                })
+                existing_urls.add(url.lower())
+        response["search"] = search_summary
         _json_response(self, 200 if response["status"] in {"ok", "partial"} else 502, response)
