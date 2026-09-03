@@ -22,6 +22,12 @@ build/
 .vscode/
 .idea/
 
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+*$py.class
+
 # OS
 .DS_Store
 Thumbs.db
