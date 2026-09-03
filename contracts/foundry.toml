@@ -15,7 +15,7 @@ fuzz = 200
 forge_flags = "--verbosity 2"
 
 [rpc_endpoints]
-arbitrum_sepolia = "${ARB_SEPOLIA_RPC_URL}"
+arbitrum_sepolia = "https://sepolia-rollup.arbitrum.io/rpc"
 base_sepolia = "${BASE_SEPOLIA_RPC_URL}"
 
 [etherscan]
