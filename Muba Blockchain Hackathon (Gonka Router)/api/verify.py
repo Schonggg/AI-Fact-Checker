@@ -729,7 +729,7 @@ def _aggregate(claim, article, results, started_at):
     }
 
 
-class handler(BaseHTTPRequestHandler):
+class VerifyRequestHandler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         _json_response(self, 204, {})
 
@@ -877,113 +877,98 @@ class handler(BaseHTTPRequestHandler):
         _json_response(self, 200 if response["status"] in {"ok", "partial"} else 502, response)
 
 
-# ── Vercel Python Serverless 函数入口 ───────────────────────────
-# Vercel 期望导出 handler(event, context) 函数，不是 BaseHTTPRequestHandler 类
-# 下面这个 wrapper 把 Lambda event 转换成请求对象，调用上面的 handler 类，再把响应适配成 Vercel 格式
+# ── Vercel Python Serverless WSGI 入口 ───────────────────────────
+# Vercel 期待一个可调用对象，接受 (environ, start_response) 参数
+# 这里把上面的 class-based handler 适配成标准 WSGI app
 
-def handler(event, context=None):
-    """Vercel Python serverless 入口函数。event 是 AWS Lambda 事件对象。"""
-    import io, sys
-    from wsgiref.headers import Headers
+def handler(environ, start_response):
+    """
+    标准 WSGI app 接口。Vercel 会把请求转发给这个函数。
+    environ: dict，类似 Flask/WSGI 的请求环境
+    start_response(status_line, headers): 回调，用于发送响应头
+    """
+    import io
 
-    h = handler  # the class (already instantiated below as instance)
+    method = environ.get("REQUEST_METHOD", "GET").upper()
+    path = environ.get("PATH_INFO", "/")
+    query = environ.get("QUERY_STRING", "")
 
-    method = (event.get("httpMethod") or "GET").upper()
-    path = event.get("path") or "/"
-    query = event.get("rawQuery") or event.get("queryStringParameters") or ""
-    headers = event.get("headers") or {}
-    body_bytes = event.get("body") or ""
+    # 从 environ 构建 HTTP 请求原始字节（供 BaseHTTPRequestHandler 解析）
+    headers_out = {}
+    for key, val in environ.items():
+        if key.startswith("HTTP_"):
+            headers_out[key[5:].replace("_", "-").title()] = val
+    host = environ.get("HTTP_HOST", "localhost")
+    headers_out["Host"] = host
 
-    # Build a minimal mock socket for BaseHTTPRequestHandler
-    class _MockSocket:
-        def __init__(self, read_buffer=b""):
-            self._buf = read_buffer
-            self._pos = 0
-        def read(self, n=-1):
-            if n < 0:
-                result = self._buf[self._pos:]
-                self._pos = len(self._buf)
-            else:
-                result = self._buf[self._pos:self._pos + n]
-                self._pos += len(result)
-            return result
-        def readline(self):
-            line_end = self._buf.find(b"\n", self._pos)
-            if line_end < 0:
-                result = self._buf[self._pos:]
-                self._pos = len(self._buf)
-            else:
-                result = self._buf[self._pos:line_end + 1]
-                self._pos = line_end + 1
-            return result
-        def write(self, data):
-            pass  # output captured via wfile
+    # 构造类似 HTTP 请求行的起始行
+    request_line = f"{method} {path}"
+    if query:
+        request_line += f"?{query}"
+    request_line += " HTTP/1.1\r\n"
+    header_lines = request_line
+    for k, v in headers_out.items():
+        header_lines += f"{k}: {v}\r\n"
+    header_lines += "\r\n"
 
-    class _MockWFile(io.BytesIO):
-        _status = 200
-        _headers = Headers([])
+    body_data = environ.get("wsgi.input", io.BytesIO()).read()
+    if isinstance(body_data, str):
+        body_data = body_data.encode("utf-8")
+    raw_request = header_lines.encode("utf-8") + body_data
 
-    # Build mock request
-    req_bytes = (
-        f"{method} {path}?{query} HTTP/1.1\r\n"
-        + "".join(f"{k}: {v}\r\n" for k, v in headers.items())
-        + "\r\n"
-    ).encode() + body_bytes.encode("utf-8") if isinstance(body_bytes, str) else body_bytes
+    # 用 BytesIO 捕获 handler 的输出
+    response_buffer = io.BytesIO()
 
-    mock_sock = _MockSocket(req_bytes)
-    mock_wfile = _MockWFile()
-
-    # Instantiate the handler class
-    h_instance = handler(mock_sock, ("127.0.0.1", 0), mock_wfile, handler.__bases__[0].__name__ if hasattr(handler, "__bases__") else "BaseHTTPRequestHandler")
-
-    # Process request via the class methods
+    # 实例化并运行 handler class
+    h = HandlerForVercelWSGI(raw_request, response_buffer)
     try:
-        h_instance.handle()
+        h.handle()
     except Exception:
         pass
 
-    response_body = mock_wfile.getvalue()
-    if not response_body:
-        return {"statusCode": 500, "body": json.dumps({"status": "error", "error": "handler returned no output"})}
+    raw_response = response_buffer.getvalue()
+    if not raw_response:
+        start_response("500 Internal Server Error", [("Content-Type", "application/json")])
+        return [b'{"status":"error","error":"handler returned no output"}']
 
-    # Parse the raw HTTP response
+    # 解析原始 HTTP 响应
     try:
-        status_line, rest = response_body.split(b"\r\n", 1)
-        status_code = int(status_line.split(b" ")[1])
-        header_part, response_body2 = rest.split(b"\r\n\r\n", 1)
-        resp_headers = {}
-        for line in header_part.decode().split("\r\n"):
+        header_end = raw_response.index(b"\r\n\r\n")
+        status_and_headers = raw_response[:header_end]
+        body = raw_response[header_end + 4:]
+        first_line, header_part = status_and_headers.split(b"\r\n", 1)
+        status_code = int(first_line.split(b" ")[1])
+        status_str = "200 OK" if status_code == 200 else f"{status_code} Error"
+        resp_headers = []
+        for line in header_part.decode("latin-1").split("\r\n"):
             if ":" in line:
                 k, v = line.split(":", 1)
-                resp_headers[k.strip().lower()] = v.strip()
-        body = response_body2.decode("utf-8", errors="replace")
+                resp_headers.append((k.strip(), v.strip()))
+        # 过滤 transfer-encoding chunked
+        resp_headers = [(k, v) for k, v in resp_headers
+                        if k.lower() not in ("transfer-encoding", "connection")]
+        start_response(status_str, resp_headers)
+        return [body]
     except Exception:
-        body = response_body.decode("utf-8", errors="replace")
-        status_code = 200
+        start_response("500 Internal Server Error", [("Content-Type", "application/json")])
+        return [b'{"status":"error","error":"failed to parse handler response"}']
 
-    # Strip transfer-encoding chunked delimiting if present (simple heuristic)
-    if "chunked" in resp_headers.get("transfer-encoding", ""):
-        import re
-        chunks = re.findall(rb"([0-9a-fA-F]+)\r\n", response_body2)
-        actual_body = b""
-        i = 0
-        try:
-            while i < len(response_body2):
-                line_end = response_body2.find(b"\r\n", i)
-                if line_end < 0:
-                    break
-                chunk_size = int(response_body2[i:line_end], 16)
-                if chunk_size == 0:
-                    break
-                actual_body += response_body2[line_end + 2:line_end + 2 + chunk_size]
-                i = line_end + 2 + chunk_size
-            if actual_body:
-                body = actual_body.decode("utf-8", errors="replace")
-        except Exception:
-            pass
 
-    return {
-        "statusCode": status_code,
-        "headers": {k: v for k, v in resp_headers.items() if k not in ("transfer-encoding", "connection")},
-        "body": body,
-    }
+class HandlerForVercelWSGI(BaseHTTPRequestHandler):
+    """专用于 Vercel WSGI 的 handler：接收原始 HTTP 请求，输出到 BytesIO 缓冲区"""
+
+    protocol_version = "HTTP/1.1"
+
+    def __init__(self, raw_request, response_buffer):
+        self._raw = raw_request
+        self._buf = response_buffer
+        # 先调用父类 __init__ 完成 setup（会设置 rfile/wfile）
+        super().__init__(io.BytesIO(raw_request), ("127.0.0.1", 0), self)
+
+    def setup(self):
+        # 替换 setup：用 BytesIO 替代真实 socket
+        self.rfile = io.BytesIO(self._raw)
+        self.wfile = self._buf
+
+    def log_message(self, format, *args):
+        pass  # 安静，不打印日志
