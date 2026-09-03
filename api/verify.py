@@ -902,12 +902,14 @@ class VerifyRequestHandler(BaseHTTPRequestHandler):
 
 
 # ── Vercel Python Serverless WSGI 入口 ───────────────────────────
-# Vercel 期待一个可调用对象，接受 (environ, start_response) 参数
-# 这里把上面的 class-based handler 适配成标准 WSGI app
+# 标准 WSGI 适配（可选，供 gunicorn/uvicorn 等传统 WSGI 容器复用）。
+# 注意：Vercel 的 /api 文件式 Python runtime 期望顶层 `handler` 是
+# BaseHTTPRequestHandler 的【类】，不是这个 WSGI 函数。真正的 Vercel
+# 入口在文件末尾 `handler = VerifyRequestHandler`。
 
-def handler(environ, start_response):
+def wsgi_handler(environ, start_response):
     """
-    标准 WSGI app 接口。Vercel 会把请求转发给这个函数。
+    标准 WSGI app 接口（非 Vercel 入口；Vercel 走 handler 类）。
     environ: dict，类似 Flask/WSGI 的请求环境
     start_response(status_line, headers): 回调，用于发送响应头
     """
@@ -1083,5 +1085,11 @@ def vercel_entry(event, context):
     return {"statusCode": status_code, "body": body}
 
 
-# 导出 vercel_entry 作为默认 handler（Vercel 自动检测会用这个）
-handler = vercel_entry
+# ── Vercel 入口 ──────────────────────────────────────────────
+# Vercel 的 /api 文件式 Python runtime 要求每个 .py 文件导出名为 `handler`
+# 的顶层对象，且必须是 BaseHTTPRequestHandler 的【类】。Vercel 会实例化
+# 该类并直接调用 do_GET / do_POST / do_OPTIONS。
+# Ref: https://vercel.com/docs/functions/runtimes/python/api-directory
+# 下面的 vercel_entry / HandlerForVercelWSGI 是旧版 Lambda 适配，现代
+# Vercel 不会再调用它们，保留仅为向后兼容。
+handler = VerifyRequestHandler
