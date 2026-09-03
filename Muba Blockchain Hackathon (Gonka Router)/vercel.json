@@ -1,13 +1,8 @@
 {
+  "publicDirectory": "public",
   "functions": {
     "api/verify.py": {
       "maxDuration": 55
     }
-  },
-  "rewrites": [
-    {
-      "source": "/api/verify",
-      "destination": "/api/verify.py"
-    }
-  ]
+  }
 }
