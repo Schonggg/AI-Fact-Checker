@@ -58,24 +58,16 @@ contract TruthRegistryTest is Test {
         // Arrange
         truthRegistry.attestTruth(CLAIM_HASH, TRUTH_SCORE, VERDICT, GONKA_REQUEST_IDS, METADATA_URI);
 
-        // Act
-        (
-            bytes32  memory claimHash,
-            uint8    memory truthScore,
-            string   memory verdict,
-            string[] memory requestIds,
-            string   memory metadataURI,
-            address  memory attester,
-            uint256  memory timestamp
-        ) = truthRegistry.getTruth(CLAIM_HASH);
+        // Act 
+        TruthRegistry.TruthRecord memory record = truthRegistry.getTruth(CLAIM_HASH);
 
         // Assert
-        assertEq(claimHash, CLAIM_HASH, "claimHash mismatch");
-        assertEq(truthScore, TRUTH_SCORE, "truthScore mismatch");
-        assertEq(verdict, VERDICT, "verdict mismatch");
-        assertEq(requestIds.length, 3, "gonkaRequestIds length should be 3");
-        assertEq(attester, address(this), "attester should be test contract");
-        assertGt(timestamp, 0, "timestamp should be set");
+        assertEq(record.claimHash, CLAIM_HASH, "claimHash mismatch");
+        assertEq(record.truthScore, TRUTH_SCORE, "truthScore mismatch");
+        assertEq(record.verdict, VERDICT, "verdict mismatch");
+        assertEq(record.gonkaRequestIds.length, 3, "gonkaRequestIds length should be 3");
+        assertEq(record.attester, address(this), "attester should be test contract");
+        assertGt(record.timestamp, 0, "timestamp should be set");
     }
 
     function test_isClaimAttested_returnsTrue() public {
@@ -95,7 +87,7 @@ contract TruthRegistryTest is Test {
         assertEq(ids[2], "req_judge_agent_99e81d0");
     }
 
-    function test_hashClaim_generatesCorrectHash() public {
+    function test_hashClaim_generatesCorrectHash() public view{
         bytes32 hash = truthRegistry.hashClaim("Trump announces free student loan relief");
         assertEq(hash, CLAIM_HASH, "hashClaim should produce correct keccak256");
     }
@@ -130,7 +122,7 @@ contract TruthRegistryTest is Test {
     function test_revert_emptyRequestIds() public {
         string[] memory emptyIds = new string[](0);
 
-        vm.expectRevert("Empty request IDs");
+        vm.expectRevert(TruthRegistry.EmptyRequestIds.selector);
         truthRegistry.attestTruth(CLAIM_HASH, TRUTH_SCORE, VERDICT, emptyIds, METADATA_URI);
     }
 
@@ -152,8 +144,8 @@ contract TruthRegistryTest is Test {
         // Update to DISPUTED
         truthRegistry.updateVerdict(CLAIM_HASH, "DISPUTED");
 
-        (, , string memory newVerdict, , , , ) = truthRegistry.getTruth(CLAIM_HASH);
-        assertEq(newVerdict, "DISPUTED", "Verdict should be updated to DISPUTED");
+        TruthRegistry.TruthRecord memory record = truthRegistry.getTruth(CLAIM_HASH);
+        assertEq(record.verdict, "DISPUTED", "Verdict should be updated to DISPUTED");
     }
 
     // ─────────────────────────────────────────────
@@ -162,7 +154,7 @@ contract TruthRegistryTest is Test {
 
     function test_event_TruthAttested_emitted() public {
         vm.expectEmit(true, true, true, true);
-        emit TruthAttested(
+        emit TruthRegistry.TruthAttested(
             CLAIM_HASH,
             TRUTH_SCORE,
             VERDICT,

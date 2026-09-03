@@ -108,8 +108,7 @@ contract MicroBounty {
         if (bounty.claimed) revert BountyAlreadyClaimed(claimHash);
 
         // Verify the claim is attested on TruthRegistry
-        (bool attested, , , , , , ) = ITruthRegistry(truthRegistry)
-            .getTruth(claimHash);
+        bool attested = ITruthRegistry(truthRegistry).isClaimAttested(claimHash);
         if (!attested) revert ClaimNotAttested(claimHash);
 
         bounty.claimed = true;
@@ -151,13 +150,15 @@ contract MicroBounty {
         Bounty memory b = bounties[claimHash];
         return (b.amount, b.funder, b.claimed, b.timestamp);
     }
-}
+} // （microbounty contracts endin
 
 /**
  * @notice Minimal interface for TruthRegistry read operations
  * @dev Only what MicroBounty needs to verify attestations
  */
 interface ITruthRegistry {
+    function isClaimAttested(bytes32 claimHash) external view returns (bool);
+    
     function getTruth(bytes32 claimHash)
         external
         view

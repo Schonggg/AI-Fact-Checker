@@ -140,7 +140,7 @@ contract TruthRegistry {
      *   ["req_pro_agent_89f72b1", "req_con_agent_12a34c5", "req_judge_agent_99e81d0"]
      */
     function attestTruth(
-        bytes32  calldata claimHash,
+        bytes32  claimHash,
         uint8    truthScore,
         string calldata verdict,
         string[] calldata gonkaRequestIds,
@@ -187,7 +187,7 @@ contract TruthRegistry {
      * @param newVerdict New verdict after review
      */
     function updateVerdict(
-        bytes32 calldata claimHash,
+        bytes32 claimHash,
         string calldata newVerdict
     ) external validVerdict(newVerdict) {
         require(isAttested[claimHash], "Claim not attested");
@@ -211,7 +211,7 @@ contract TruthRegistry {
      * @param claimHash keccak256 hash of the claim
      * @return TruthRecord struct
      */
-    function getTruth(bytes32 calldata claimHash)
+    function getTruth(bytes32 claimHash)
         external
         view
         returns (TruthRecord memory)
@@ -225,7 +225,7 @@ contract TruthRegistry {
      * @param claimHash Hash of the claim
      * @return bool True if attested
      */
-    function isClaimAttested(bytes32 calldata claimHash)
+    function isClaimAttested(bytes32 claimHash)
         external
         view
         returns (bool)
@@ -238,7 +238,7 @@ contract TruthRegistry {
      * @param claimHash Hash of the claim
      * @return string[] Array of Gonka Request IDs
      */
-    function getGonkaRequestIds(bytes32 calldata claimHash)
+    function getGonkaRequestIds(bytes32 claimHash)
         external
         view
         returns (string[] memory)

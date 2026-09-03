@@ -41,7 +41,7 @@ contract DeployScript is Script {
         console.log("Deployer:", vm.addr(deployerPrivateKey));
 
         // 2. Set RPC
-        vm.createSelectRpc(rpcUrl);
+        vm.createSelectFork(rpcUrl);
 
         // 3. Start broadcast
         vm.startBroadcast(deployerPrivateKey);
