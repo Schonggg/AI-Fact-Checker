@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
-from api.verify import handler as VerifyHandler  # noqa: E402
+from api.verify import VerifyRequestHandler as VerifyHandler  # noqa: E402
 
 
 class LocalAppHandler(SimpleHTTPRequestHandler):
