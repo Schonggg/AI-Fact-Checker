@@ -1,7 +1,7 @@
 {
   "functions": {
     "api/verify.py": {
-      "maxDuration": 60
+      "maxDuration": 55
     }
   },
   "rewrites": [
