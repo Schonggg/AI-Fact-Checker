@@ -1,5 +1,6 @@
 import hashlib
 import html
+import io
 import ipaddress
 import json
 import logging
@@ -7,7 +8,9 @@ import os
 import re
 import socket
 import ssl
+import sys
 import time
+import traceback
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -15,6 +18,14 @@ from http.server import BaseHTTPRequestHandler
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
+
+# Configure logging to stderr (Vercel serverless captures stderr in function logs).
+logging.basicConfig(
+    stream=sys.stderr,
+    level=os.environ.get("LOG_LEVEL", "INFO"),
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
+logger = logging.getLogger("gonka.factchecker")
 
 
 def _load_local_env():
@@ -60,7 +71,17 @@ def _normalize_gonka_base_url(value):
     return url
 
 
-GONKA_BASE_URL = _normalize_gonka_base_url(os.environ.get("GONKA_BASE_URL", "https://api.gonkarouter.io/v1"))
+try:
+    GONKA_BASE_URL = _normalize_gonka_base_url(os.environ.get("GONKA_BASE_URL", "https://api.gonkarouter.io/v1"))
+except ValueError as _base_url_err:
+    # A malformed GONKA_BASE_URL must NOT crash the whole serverless function
+    # (it would 500 every request, including /health). Fall back to the public default
+    # and surface the misconfiguration via the health endpoint + logs.
+    logging.getLogger("gonka.factchecker").error(
+        "Invalid GONKA_BASE_URL (%s); falling back to https://api.gonkarouter.io/v1",
+        _base_url_err,
+    )
+    GONKA_BASE_URL = "https://api.gonkarouter.io/v1"
 
 MODEL_CONFIGS = [
     {
@@ -752,6 +773,9 @@ class VerifyRequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         started_at = time.perf_counter()
+        logging.getLogger("gonka.factchecker").info(
+            "POST /api/verify from %s", self.client_address[0] if self.client_address else "?"
+        )
         try:
             body = _read_json_body(self)
         except (json.JSONDecodeError, ValueError) as exc:
@@ -878,12 +902,14 @@ class VerifyRequestHandler(BaseHTTPRequestHandler):
 
 
 # ── Vercel Python Serverless WSGI 入口 ───────────────────────────
-# Vercel 期待一个可调用对象，接受 (environ, start_response) 参数
-# 这里把上面的 class-based handler 适配成标准 WSGI app
+# 标准 WSGI 适配（可选，供 gunicorn/uvicorn 等传统 WSGI 容器复用）。
+# 注意：Vercel 的 /api 文件式 Python runtime 期望顶层 `handler` 是
+# BaseHTTPRequestHandler 的【类】，不是这个 WSGI 函数。真正的 Vercel
+# 入口在文件末尾 `handler = VerifyRequestHandler`。
 
-def handler(environ, start_response):
+def wsgi_handler(environ, start_response):
     """
-    标准 WSGI app 接口。Vercel 会把请求转发给这个函数。
+    标准 WSGI app 接口（非 Vercel 入口；Vercel 走 handler 类）。
     environ: dict，类似 Flask/WSGI 的请求环境
     start_response(status_line, headers): 回调，用于发送响应头
     """
@@ -921,15 +947,21 @@ def handler(environ, start_response):
 
     # 实例化并运行 handler class
     h = HandlerForVercelWSGI(raw_request, response_buffer)
+    handler_error = None
     try:
         h.handle()
-    except Exception:
-        pass
+    except Exception as exc:
+        # NEVER silently swallow — surface to logs so Vercel function logs show the real cause.
+        handler_error = exc
+        logging.getLogger("gonka.factchecker").error(
+            "WSGI handler raised: %s\n%s", exc, traceback.format_exc()
+        )
 
     raw_response = response_buffer.getvalue()
     if not raw_response:
+        err_msg = f"handler returned no output" + (f": {handler_error}" if handler_error else "")
         start_response("500 Internal Server Error", [("Content-Type", "application/json")])
-        return [b'{"status":"error","error":"handler returned no output"}']
+        return [json.dumps({"status": "error", "error": err_msg}).encode("utf-8")]
 
     # 解析原始 HTTP 响应
     try:
@@ -954,10 +986,17 @@ def handler(environ, start_response):
         return [b'{"status":"error","error":"failed to parse handler response"}']
 
 
-class HandlerForVercelWSGI(BaseHTTPRequestHandler):
-    """专用于 Vercel WSGI 的 handler：接收原始 HTTP 请求，输出到 BytesIO 缓冲区"""
+class HandlerForVercelWSGI(VerifyRequestHandler):
+    """专用于 Vercel WSGI 的 handler：接收原始 HTTP 请求，输出到 BytesIO 缓冲区。
 
-    protocol_version = "HTTP/1.1"
+    必须继承 VerifyRequestHandler（而非 BaseHTTPRequestHandler），否则会丢失
+    do_GET/do_POST/do_OPTIONS 方法，导致 Vercel 每个请求都返回 501。
+    """
+
+    # HTTP/1.0 → 每个请求后 close_connection=True，handle() 处理完一个请求即停止。
+    # 不能用 HTTP/1.1：serverless 一次冷启动只应处理一个请求，keep-alive 循环会把
+    # 请求体剩余字节当成下一条请求行，报 "Bad request version" 并污染响应。
+    protocol_version = "HTTP/1.0"
 
     def __init__(self, raw_request, response_buffer):
         self._raw = raw_request
@@ -969,6 +1008,17 @@ class HandlerForVercelWSGI(BaseHTTPRequestHandler):
         # 替换 setup：用 BytesIO 替代真实 socket
         self.rfile = io.BytesIO(self._raw)
         self.wfile = self._buf
+
+    def finish(self):
+        # 默认 StreamRequestHandler.finish() 会 close() self.wfile 与 self.rfile，
+        # 但这里 self.wfile 就是调用方传入的 response_buffer——一旦被 close，
+        # 调用方再 response_buffer.getvalue() 就会抛 "I/O operation on closed file"，
+        # 导致 Vercel 每个请求都静默 500。这里覆盖为不关闭外部 buffer，只 flush。
+        try:
+            if not self.wfile.closed:
+                self.wfile.flush()
+        except (OSError, ValueError):
+            pass
 
     def log_message(self, format, *args):
         pass  # 安静，不打印日志
@@ -1008,14 +1058,20 @@ def vercel_entry(event, context):
 
     # 实例化 handler 并处理请求
     h = HandlerForVercelWSGI(raw_request, response_buffer)
+    handler_error = None
     try:
         h.handle()
-    except Exception:
-        pass
+    except Exception as exc:
+        # NEVER silently swallow — surface to Vercel function logs.
+        handler_error = exc
+        logging.getLogger("gonka.factchecker").error(
+            "vercel_entry handler raised: %s\n%s", exc, traceback.format_exc()
+        )
 
     raw = response_buffer.getvalue()
     if not raw:
-        return {"statusCode": 500, "body": json.dumps({"status": "error", "error": "no output"})}
+        err_msg = "no output" + (f": {handler_error}" if handler_error else "")
+        return {"statusCode": 500, "body": json.dumps({"status": "error", "error": err_msg})}
 
     try:
         header_end = raw.index(b"\r\n\r\n")
@@ -1029,5 +1085,11 @@ def vercel_entry(event, context):
     return {"statusCode": status_code, "body": body}
 
 
-# 导出 vercel_entry 作为默认 handler（Vercel 自动检测会用这个）
-handler = vercel_entry
+# ── Vercel 入口 ──────────────────────────────────────────────
+# Vercel 的 /api 文件式 Python runtime 要求每个 .py 文件导出名为 `handler`
+# 的顶层对象，且必须是 BaseHTTPRequestHandler 的【类】。Vercel 会实例化
+# 该类并直接调用 do_GET / do_POST / do_OPTIONS。
+# Ref: https://vercel.com/docs/functions/runtimes/python/api-directory
+# 下面的 vercel_entry / HandlerForVercelWSGI 是旧版 Lambda 适配，现代
+# Vercel 不会再调用它们，保留仅为向后兼容。
+handler = VerifyRequestHandler
