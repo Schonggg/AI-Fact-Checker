@@ -875,3 +875,115 @@ class handler(BaseHTTPRequestHandler):
                 existing_urls.add(url.lower())
         response["search"] = search_summary
         _json_response(self, 200 if response["status"] in {"ok", "partial"} else 502, response)
+
+
+# ── Vercel Python Serverless 函数入口 ───────────────────────────
+# Vercel 期望导出 handler(event, context) 函数，不是 BaseHTTPRequestHandler 类
+# 下面这个 wrapper 把 Lambda event 转换成请求对象，调用上面的 handler 类，再把响应适配成 Vercel 格式
+
+def handler(event, context=None):
+    """Vercel Python serverless 入口函数。event 是 AWS Lambda 事件对象。"""
+    import io, sys
+    from wsgiref.headers import Headers
+
+    h = handler  # the class (already instantiated below as instance)
+
+    method = (event.get("httpMethod") or "GET").upper()
+    path = event.get("path") or "/"
+    query = event.get("rawQuery") or event.get("queryStringParameters") or ""
+    headers = event.get("headers") or {}
+    body_bytes = event.get("body") or ""
+
+    # Build a minimal mock socket for BaseHTTPRequestHandler
+    class _MockSocket:
+        def __init__(self, read_buffer=b""):
+            self._buf = read_buffer
+            self._pos = 0
+        def read(self, n=-1):
+            if n < 0:
+                result = self._buf[self._pos:]
+                self._pos = len(self._buf)
+            else:
+                result = self._buf[self._pos:self._pos + n]
+                self._pos += len(result)
+            return result
+        def readline(self):
+            line_end = self._buf.find(b"\n", self._pos)
+            if line_end < 0:
+                result = self._buf[self._pos:]
+                self._pos = len(self._buf)
+            else:
+                result = self._buf[self._pos:line_end + 1]
+                self._pos = line_end + 1
+            return result
+        def write(self, data):
+            pass  # output captured via wfile
+
+    class _MockWFile(io.BytesIO):
+        _status = 200
+        _headers = Headers([])
+
+    # Build mock request
+    req_bytes = (
+        f"{method} {path}?{query} HTTP/1.1\r\n"
+        + "".join(f"{k}: {v}\r\n" for k, v in headers.items())
+        + "\r\n"
+    ).encode() + body_bytes.encode("utf-8") if isinstance(body_bytes, str) else body_bytes
+
+    mock_sock = _MockSocket(req_bytes)
+    mock_wfile = _MockWFile()
+
+    # Instantiate the handler class
+    h_instance = handler(mock_sock, ("127.0.0.1", 0), mock_wfile, handler.__bases__[0].__name__ if hasattr(handler, "__bases__") else "BaseHTTPRequestHandler")
+
+    # Process request via the class methods
+    try:
+        h_instance.handle()
+    except Exception:
+        pass
+
+    response_body = mock_wfile.getvalue()
+    if not response_body:
+        return {"statusCode": 500, "body": json.dumps({"status": "error", "error": "handler returned no output"})}
+
+    # Parse the raw HTTP response
+    try:
+        status_line, rest = response_body.split(b"\r\n", 1)
+        status_code = int(status_line.split(b" ")[1])
+        header_part, response_body2 = rest.split(b"\r\n\r\n", 1)
+        resp_headers = {}
+        for line in header_part.decode().split("\r\n"):
+            if ":" in line:
+                k, v = line.split(":", 1)
+                resp_headers[k.strip().lower()] = v.strip()
+        body = response_body2.decode("utf-8", errors="replace")
+    except Exception:
+        body = response_body.decode("utf-8", errors="replace")
+        status_code = 200
+
+    # Strip transfer-encoding chunked delimiting if present (simple heuristic)
+    if "chunked" in resp_headers.get("transfer-encoding", ""):
+        import re
+        chunks = re.findall(rb"([0-9a-fA-F]+)\r\n", response_body2)
+        actual_body = b""
+        i = 0
+        try:
+            while i < len(response_body2):
+                line_end = response_body2.find(b"\r\n", i)
+                if line_end < 0:
+                    break
+                chunk_size = int(response_body2[i:line_end], 16)
+                if chunk_size == 0:
+                    break
+                actual_body += response_body2[line_end + 2:line_end + 2 + chunk_size]
+                i = line_end + 2 + chunk_size
+            if actual_body:
+                body = actual_body.decode("utf-8", errors="replace")
+        except Exception:
+            pass
+
+    return {
+        "statusCode": status_code,
+        "headers": {k: v for k, v in resp_headers.items() if k not in ("transfer-encoding", "connection")},
+        "body": body,
+    }
