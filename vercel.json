@@ -1,3 +1,15 @@
 {
-  "version": 2
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "version": 2,
+  "functions": {
+    "api/verify.py": {
+      "maxDuration": 60,
+      "memory": 1024
+    }
+  },
+  "rewrites": [
+    { "source": "/api/verify", "destination": "/api/verify" },
+    { "source": "/", "destination": "/index.html" },
+    { "source": "/index.html", "destination": "/index.html" }
+  ]
 }
