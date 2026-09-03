@@ -972,3 +972,62 @@ class HandlerForVercelWSGI(BaseHTTPRequestHandler):
 
     def log_message(self, format, *args):
         pass  # 安静，不打印日志
+
+
+# ── Vercel Lambda 入口点 ───────────────────────────────────────────
+# Vercel 自动检测时调用 handler(event, context)
+# 返回 dict: {statusCode, headers, body} — Vercel Python Runtime 标准格式
+
+def vercel_entry(event, context):
+    """
+    Vercel Python Serverless 入口点（Lambda 风格）。
+    将 Lambda event 转换为 WSGI 格式，调用 WSGI handler，再适配为 Vercel 响应。
+    """
+    import io
+
+    method = (event.get("httpMethod") or "GET").upper()
+    path = event.get("path") or "/"
+    query = event.get("rawQuery") or ""
+    headers = event.get("headers") or {}
+
+    # 构造原始 HTTP 请求（供 VerifyRequestHandler 解析）
+    request_lines = f"{method} {path}"
+    if query:
+        request_lines += f"?{query}"
+    request_lines += " HTTP/1.1\r\nHost: localhost\r\n"
+    for k, v in headers.items():
+        request_lines += f"{k}: {v}\r\n"
+    request_lines += "\r\n"
+
+    body_bytes = event.get("body") or ""
+    if isinstance(body_bytes, str):
+        body_bytes = body_bytes.encode("utf-8")
+
+    raw_request = request_lines.encode("utf-8") + body_bytes
+    response_buffer = io.BytesIO()
+
+    # 实例化 handler 并处理请求
+    h = HandlerForVercelWSGI(raw_request, response_buffer)
+    try:
+        h.handle()
+    except Exception:
+        pass
+
+    raw = response_buffer.getvalue()
+    if not raw:
+        return {"statusCode": 500, "body": json.dumps({"status": "error", "error": "no output"})}
+
+    try:
+        header_end = raw.index(b"\r\n\r\n")
+        status_line = raw[:raw.index(b"\r\n")]
+        status_code = int(status_line.split(b" ")[1])
+        body = raw[header_end + 4:].decode("utf-8", errors="replace")
+    except Exception:
+        status_code = 500
+        body = raw.decode("utf-8", errors="replace")
+
+    return {"statusCode": status_code, "body": body}
+
+
+# 导出 vercel_entry 作为默认 handler（Vercel 自动检测会用这个）
+handler = vercel_entry
