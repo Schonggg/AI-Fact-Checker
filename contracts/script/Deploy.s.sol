@@ -32,9 +32,9 @@ contract DeployScript is Script {
     // ─────────────────────────────────────────────
 
     function run() external {
-        // 1. Load environment variables
-        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
-        string memory rpcUrl = vm.envString("ARB_SEPOLIA_RPC_URL");
+        // 1. Load environment variables safely (supports both .env and command-line fallback)
+        uint256 deployerPrivateKey = vm.envOr("PRIVATE_KEY", uint256(0x4bd0f070347dd1a82719094f90be2261f773d8688e3f4904d0a9840fcbcd33f0));
+        string memory rpcUrl = vm.envOr("ARB_SEPOLIA_RPC_URL", string("https://sepolia-rollup.arbitrum.io/rpc"));
 
         console.log("Deploying to Arbitrum Sepolia...");
         console.log("Chain ID:", ARBITRUM_SEPOLIA_CHAIN_ID);
@@ -69,11 +69,11 @@ contract DeployScript is Script {
         console.log("CHAIN_ID=", ARBITRUM_SEPOLIA_CHAIN_ID);
 
         // 8. Verify on Arbiscan
-        verifyContract(address(truthRegistry), "TruthRegistry");
-        verifyContract(address(microBounty), "MicroBounty");
+        verifyContract("TruthRegistry");
+        verifyContract("MicroBounty");
     }
 
-    function verifyContract(address deployedAddress, string memory contractName) internal {
+    function verifyContract(string memory contractName) internal view {
         try vm.envString("ARBISCAN_API_KEY") returns (string memory apiKey) {
             if (bytes(apiKey).length > 0) {
                 console.log("Verifying", contractName, "on Arbiscan...");
