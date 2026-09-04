@@ -1,0 +1,9 @@
+# AI Fact Checker — Vercel Python serverless function dependencies
+#
+# NOTE: api/verify.py uses the Python STANDARD LIBRARY ONLY (urllib, json,
+# concurrent.futures, http.server, ssl, ...). There are no third-party
+# imports, so this file intentionally declares no packages.
+#
+# The file itself must exist at the project root so the Vercel Python runtime
+# (@vercel/python) is enabled for files under api/. An empty (or comment-only)
+# requirements.txt is the correct signal for "no dependencies to install".
