@@ -1044,8 +1044,8 @@ const SettingsModal = (function () {
         const close = () => setShowSettings(false);
         const saveChanges = () => {
             const enabledAgents = Object.values(agents).filter(Boolean).length;
-            if (enabledAgents < 2) {
-                alert("Please enable at least two AI agents.");
+            if (enabledAgents < 3) {
+                alert("Pro, Con, and Judge must all be enabled.");
                 return;
             }
             const next = { consensus, agents, network, autoMint, ipfsPin, easSchema, fiat, notifications: notifs, compact, language };
@@ -1116,10 +1116,10 @@ const SettingsModal = (function () {
                             React.createElement(Divider, { label: "ACTIVE AGENTS" }),
                             React.createElement("p", { className: "text-[11px] mb-3", style: { color: th.muted } }, "Enable or disable individual AI agents for verification tasks."),
                             React.createElement("div", { className: "space-y-2" },
-                                React.createElement(AgentRow, { name: "ProAgent Kimi", role: "Moonshot-v1 \u00B7 pro-claim specialist", color: "#10B981", on: agents.kimi, onChange: v => setAgents(a => ({ ...a, kimi: v })) }),
-                                React.createElement(AgentRow, { name: "ConAgent DeepSeek", role: "R1-distill \u00B7 adversarial verifier", color: "#1A73E8", on: agents.deepseek, onChange: v => setAgents(a => ({ ...a, deepseek: v })) }),
-                                React.createElement(AgentRow, { name: "Verifier MiniMax", role: "Abab6.5 \u00B7 consensus arbiter", color: "#8B5CF6", on: agents.minimax, onChange: v => setAgents(a => ({ ...a, minimax: v })) })),
-                            React.createElement("p", { className: "text-[10px] mt-3 px-3", style: { color: th.muted } }, "\u26A0 Minimum 2 agents required for adversarial cross-examination mode."))),
+                                React.createElement(AgentRow, { name: "PRO", role: "Model: Kimi \u00B7 supporting argument", color: "#10B981", on: agents.kimi, onChange: v => setAgents(a => ({ ...a, kimi: v })) }),
+                                React.createElement(AgentRow, { name: "CON", role: "Model: DeepSeek \u00B7 opposing argument", color: "#1A73E8", on: agents.deepseek, onChange: v => setAgents(a => ({ ...a, deepseek: v })) }),
+                                React.createElement(AgentRow, { name: "JUDGE", role: "Model: MiniMax \u00B7 final decision", color: "#8B5CF6", on: agents.minimax, onChange: v => setAgents(a => ({ ...a, minimax: v })) })),
+                            React.createElement("p", { className: "text-[10px] mt-3 px-3", style: { color: th.muted } }, "\u26A0 Pro, Con, and Judge are all required for debate mode."))),
                         section === "web3" && (React.createElement("div", null,
                             React.createElement("h2", { className: "text-[13px] font-bold mb-1", style: { fontFamily: MONO, color: th.text } }, "Web3 & TruthRegistry Preferences"),
                             React.createElement("p", { className: "text-[11px] mb-6", style: { color: th.muted } }, "Configure on-chain attestation and network preferences."),
@@ -1994,9 +1994,6 @@ function linesFromModel(model) {
     if (!model) {
         return [{ t: "cmd", s: "waiting for claim input" }, { t: "info", s: "Submit text or paste a public article link to start verification." }];
     }
-    if (model.provider === "Kimi" && model.fell_back) {
-        return [{ t: "fallback", s: "Kimi unavailable - MiniMax has taken over" }];
-    }
     if (model.status !== "ok") {
         return [
             { t: "cmd", s: `init --model ${model.model || "unknown"}` },
@@ -2010,8 +2007,8 @@ function linesFromModel(model) {
         s: `[${String(step.status || "INFO").toUpperCase()}] ${step.label}: ${step.detail}`,
     })) : [];
     return [
-        { t: "cmd", s: `init --model ${model.model || "unknown"}` },
-        { t: "info", s: model.role || "Adversarial verification agent online" },
+        ...(model.fell_back ? [{ t: "fallback", s: "Kimi unavailable - MiniMax has taken over" }] : []),
+        { t: "info", s: model.role || "Verification agent online" },
         ...steps,
         { t: "info", s: "--------------------------------------" },
         { t: "verdict", s: `VERDICT: ${verdict.terminal} [${((model.confidence || 0) / 100).toFixed(3)}]` },
@@ -2042,16 +2039,18 @@ function VerificationOverview({ verification, verdictInfo, th }) {
 }
 function buildTerminalData(verification, phase) {
     const fallback = [
-        { model: "DEEPSEEK", version: "DeepSeek-V4-Flash-0731", accent: "#1A73E8", lines: DS },
-        { model: "KIMI", version: "Kimi-K2.6", accent: "#10B981", lines: KI },
-        { model: "MINIMAX", version: "MiniMax-M2.7", accent: "#8B5CF6", lines: MM },
+        { provider: "DeepSeek", model: "CON", version: "Model: DeepSeek-V4-Flash-0731", accent: "#1A73E8", lines: DS },
+        { provider: "Kimi", model: "PRO", version: "Model: Kimi-K2.6", accent: "#10B981", lines: KI },
+        { provider: "MiniMax", model: "JUDGE", version: "Model: MiniMax-M2.7", accent: "#8B5CF6", lines: MM },
     ];
     if (!verification)
         return fallback.map(item => ({ ...item, lines: [{ t: "cmd", s: "boot adversarial verifier" }, { t: "info", s: "Fetching URL text / preparing model prompts..." }, { t: "info", s: "Waiting for Gonka Router response..." }] }));
     const models = Array.isArray(verification.models) ? verification.models : [];
     return fallback.map(item => {
-        const match = models.find(model => item.model.toLowerCase().includes(String(model.provider || "").toLowerCase()));
-        return { ...item, version: match ? shortHash(match.model, 22, 8) : item.version, lines: linesFromModel(match) };
+        const match = models.find(model => item.provider.toLowerCase() === String(model.provider || "").toLowerCase());
+        const actualModel = match && (match.model_used || match.model);
+        const fallbackSuffix = match && match.fell_back ? " (Kimi fallback)" : "";
+        return { ...item, version: actualModel ? `Model: ${shortHash(actualModel, 22, 8)}${fallbackSuffix}` : item.version, lines: linesFromModel(match) };
     });
 }
 function attestationRows(verification, walletAddress) {
