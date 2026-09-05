@@ -60,7 +60,7 @@ KIMI_TIMEOUT_SECONDS = int(os.environ.get("GONKA_KIMI_MODEL_TIMEOUT", "30"))
 # Vercel maxDuration 预算上限（秒），保证总耗时不被掐断
 MAX_TOTAL_BUDGET_SECONDS = int(os.environ.get("GONKA_TOTAL_BUDGET_SECONDS", "50"))
 # 降级兜底模型
-FALLBACK_MODEL = os.environ.get("GONKA_FALLBACK_MODEL", "deepseek-ai/DeepSeek-V4-Flash-0731")
+FALLBACK_MODEL = os.environ.get("GONKA_FALLBACK_MODEL", "MiniMaxAI/MiniMax-M2.7")
 PINATA_TIMEOUT_SECONDS = int(os.environ.get("PINATA_TIMEOUT", "8"))
 def _normalize_gonka_base_url(value):
     """Return the OpenAI-compatible Gonka broker base URL ending in /v1."""
@@ -612,14 +612,14 @@ def _call_model(config, api_key, claim, article, language, search_results=None):
         fell_back = False
     except Exception as primary_error:
         # Kimi is best-effort: timeouts, 5xx responses, unavailable channels, and
-        # malformed JSON all continue through the same DeepSeek fallback path.
+        # malformed JSON all continue through the same MiniMax fallback path.
         fallback = config.get("fallback")
         if fallback and fallback != config["model"]:
             try:
                 (parsed, request_id, usage, router) = _attempt(fallback, REQUEST_TIMEOUT_SECONDS)
                 model_used = fallback
                 fell_back = True
-                fallback_note = f"Kimi unavailable; completed with DeepSeek fallback. Primary error: {primary_error}"
+                fallback_note = f"Kimi unavailable; completed with MiniMax fallback. Primary error: {primary_error}"
             except Exception as fallback_error:
                 latency_ms = round((time.perf_counter() - started) * 1000)
                 return _fallback_result(config, claim, article, f"Primary {config['model']}: {primary_error}; fallback {fallback}: {fallback_error}", latency_ms)
