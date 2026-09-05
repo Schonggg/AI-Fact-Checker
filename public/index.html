@@ -1397,41 +1397,13 @@ function DocsModal({ onClose }) {
 // ═══════════════════════════════════════════════════════════════════════════
 // WALLET MODAL
 // ═══════════════════════════════════════════════════════════════════════════
-const WALLETS = [
-    {
-        id: "metamask",
-        name: "MetaMask",
-        desc: "Browser extension · most popular",
-        color: "#E2761B",
-        icon: (React.createElement("svg", { width: "28", height: "28", viewBox: "0 0 28 28" },
-            React.createElement("polygon", { points: "14,2 25,7 25,21 14,26 3,21 3,7", fill: "#E2761B", opacity: "0.9" }),
-            React.createElement("polygon", { points: "14,4 23,8.5 23,19.5 14,24 5,19.5 5,8.5", fill: "#E4761B" }),
-            React.createElement("polygon", { points: "14,8 19,11 19,17 14,20 9,17 9,11", fill: "#CD6116" }),
-            React.createElement("circle", { cx: "14", cy: "14", r: "3", fill: "#F6851B" }))),
-    },
-    {
-        id: "walletconnect",
-        name: "WalletConnect",
-        desc: "QR code · 400+ wallets supported",
-        color: "#3B99FC",
-        icon: (React.createElement("svg", { width: "28", height: "28", viewBox: "0 0 28 28" },
-            React.createElement("rect", { width: "28", height: "28", rx: "8", fill: "#3B99FC" }),
-            React.createElement("path", { d: "M7.5 11.5 C10.5 8.5 17.5 8.5 20.5 11.5 L21.5 12.5 L19.5 14.5 L18.5 13.5 C16.5 11.5 11.5 11.5 9.5 13.5 L8.5 14.5 L6.5 12.5 Z", fill: "white" }),
-            React.createElement("path", { d: "M17.5 15.5 L19.5 17.5 L17.5 19.5 L15.5 17.5 Z", fill: "white" }),
-            React.createElement("path", { d: "M10.5 15.5 L12.5 17.5 L10.5 19.5 L8.5 17.5 Z", fill: "white" }),
-            React.createElement("path", { d: "M14 16 L16 18 L14 20 L12 18 Z", fill: "white" }))),
-    },
-    {
-        id: "coinbase",
-        name: "Coinbase Wallet",
-        desc: "Smart wallet · no seed phrase",
-        color: "#0052FF",
-        icon: (React.createElement("svg", { width: "28", height: "28", viewBox: "0 0 28 28" },
-            React.createElement("rect", { width: "28", height: "28", rx: "8", fill: "#0052FF" }),
-            React.createElement("circle", { cx: "14", cy: "14", r: "7", fill: "none", stroke: "white", strokeWidth: "2" }),
-            React.createElement("text", { x: "14", y: "18.5", textAnchor: "middle", fill: "white", fontSize: "11", fontWeight: "bold", fontFamily: "sans-serif" }, "c"))),
-    },
-];
+const WALLETS = [{
+    id: "injected",
+    name: "Browser Wallet",
+    desc: "Connect MetaMask or another installed EVM wallet",
+    color: "#E2761B",
+    icon: React.createElement("span", { className: "text-[11px] font-bold", style: { color: "#E2761B", fontFamily: MONO } }, "EVM"),
+}];
 function WalletModal({ onClose, onConnect }) {
     const { th } = useTh();
     const [connecting, setConnecting] = useState(null);
@@ -1569,8 +1541,8 @@ function Header() {
             throw new Error("No browser wallet detected. Install MetaMask or Coinbase Wallet.");
         const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
         const walletAddress = accounts && accounts[0];
-        if (!walletAddress)
-            throw new Error("The wallet did not return an account.");
+        if (!walletAddress || !window.ethers || !window.ethers.isAddress(walletAddress))
+            throw new Error("The wallet did not return a valid account.");
         const currentChain = await window.ethereum.request({ method: "eth_chainId" });
         if (String(currentChain).toLowerCase() !== WEB3_CONFIG.chainIdHex) {
             try {
