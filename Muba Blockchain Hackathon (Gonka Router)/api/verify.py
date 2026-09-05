@@ -596,6 +596,7 @@ def _call_model(config, api_key, claim, article, language, search_results=None):
                 "Content-Type": "application/json",
                 "Accept": "application/json",
                 "User-Agent": "Mozilla/5.0 GonkaFactChecker/1.0",
+                "X-Gonka-No-Fallback": "true",
             },
             method="POST",
         )
@@ -604,7 +605,8 @@ def _call_model(config, api_key, claim, article, language, search_results=None):
         message = api_response.get("choices", [{}])[0].get("message", {})
         content = message.get("content") or message.get("reasoning_content") or message.get("reasoning") or ""
         parsed = _extract_json(content)
-        return parsed, api_response.get("id", ""), api_response.get("usage", {}), (api_response.get("x_gonka") or api_response.get("x_joingonka") or {})
+        request_id = response.headers.get("X-Request-Id") or api_response.get("id", "")
+        return parsed, request_id, api_response.get("usage", {}), (api_response.get("x_gonka") or api_response.get("x_joingonka") or {})
 
     try:
         (parsed, request_id, usage, router) = _attempt(config["model"], timeout_seconds)

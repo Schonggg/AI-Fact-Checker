@@ -2432,6 +2432,64 @@ function HomePage() {
         selectedEco && React.createElement(EcoDetailModal, { eco: selectedEco, onClose: () => setSelectedEco(null) })));
 }
 // ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+// LIVE PROFILE/DASHBOARD
+const TRUTH_REGISTRY_READ_ABI = [
+    "event TruthAttested(bytes32 indexed claimHash, uint8 truthScore, string verdict, string[] gonkaRequestIds, address indexed attester, uint256 timestamp)",
+];
+function LiveProfilePage() {
+    const { th } = useTh();
+    const { address } = useWallet();
+    const [balance, setBalance] = useState(null);
+    useEffect(() => {
+        if (!address || !window.ethers)
+            return setBalance(null);
+        const provider = new window.ethers.JsonRpcProvider("https://sepolia-rollup.arbitrum.io/rpc");
+        provider.getBalance(address).then(value => setBalance(window.ethers.formatEther(value))).catch(() => setBalance(null));
+    }, [address]);
+    return React.createElement("div", { className: "pb-20 px-6" },
+        React.createElement("div", { className: "max-w-5xl mx-auto pt-10 space-y-5" },
+            React.createElement("h1", { className: "text-xl font-bold", style: { fontFamily: MONO, color: th.text } }, "Wallet Profile"),
+            React.createElement("div", { className: "rounded-xl p-6", style: { background: th.card, border: `1px solid ${th.border}` } },
+                React.createElement("p", { className: "text-[10px] tracking-widest", style: { fontFamily: MONO, color: th.muted } }, "CONNECTED ADDRESS"),
+                React.createElement("p", { className: "mt-2 break-all text-sm", style: { fontFamily: MONO, color: th.accent } }, address || "Wallet not connected"),
+                React.createElement("p", { className: "mt-5 text-[10px] tracking-widest", style: { fontFamily: MONO, color: th.muted } }, "ARBITRUM SEPOLIA ETH BALANCE"),
+                React.createElement("p", { className: "mt-2 text-2xl font-bold", style: { fontFamily: MONO, color: th.text } }, balance === null ? "—" : balance))));
+}
+function LiveDashboardPage() {
+    const { th } = useTh();
+    const [events, setEvents] = useState(null);
+    const [error, setError] = useState(null);
+    useEffect(() => {
+        if (!window.ethers)
+            return setError("ethers.js is unavailable");
+        const load = async () => {
+            try {
+                const provider = new window.ethers.JsonRpcProvider("https://sepolia-rollup.arbitrum.io/rpc");
+                const contract = new window.ethers.Contract(WEB3_CONFIG.truthRegistryAddress, TRUTH_REGISTRY_READ_ABI, provider);
+                const logs = await contract.queryFilter(contract.filters.TruthAttested(), 0, "latest");
+                setEvents(logs.slice(-50).reverse());
+            }
+            catch (loadError) {
+                setError(loadError && loadError.message ? loadError.message : "Could not read TruthRegistry events.");
+            }
+        };
+        load();
+    }, []);
+    const rows = events || [];
+    const average = rows.length ? Math.round(rows.reduce((sum, event) => sum + Number(event.args.truthScore), 0) / rows.length) : null;
+    return React.createElement("div", { className: "pb-20 px-6" },
+        React.createElement("div", { className: "max-w-6xl mx-auto pt-10 space-y-5" },
+            React.createElement("h1", { className: "text-xl font-bold", style: { fontFamily: MONO, color: th.text } }, "TruthRegistry Dashboard"),
+            React.createElement("div", { className: "grid grid-cols-1 sm:grid-cols-3 gap-4" },
+                React.createElement(MetricCard, { label: "ON-CHAIN ATTESTATIONS", value: events ? String(rows.length) : "…", unit: "", sub: "TruthAttested events", accent: th.accent }),
+                React.createElement(MetricCard, { label: "AVERAGE TRUTH SCORE", value: average === null ? "—" : String(average), unit: average === null ? "" : "%", sub: "Calculated from live events", accent: th.success }),
+                React.createElement(MetricCard, { label: "NETWORK", value: "421614", unit: "", sub: "Arbitrum Sepolia", accent: th.warn })),
+            error && React.createElement("p", { className: "rounded-lg p-4 text-xs", style: { color: th.err, background: `${th.err}10`, border: `1px solid ${th.err}30` } }, error),
+            !error && rows.length === 0 && events && React.createElement("div", { className: "rounded-xl p-8 text-center", style: { background: th.card, border: `1px solid ${th.border}`, color: th.muted, fontFamily: MONO } }, "No TruthRegistry attestations found on-chain."),
+            rows.length > 0 && React.createElement("div", { className: "rounded-xl overflow-hidden", style: { background: th.card, border: `1px solid ${th.border}` } }, rows.map((event, index) => React.createElement("div", { key: `${event.args.claimHash}-${index}`, className: "flex flex-wrap items-center justify-between gap-3 p-4 border-b last:border-0", style: { borderColor: th.border } },
+                React.createElement("div", null, React.createElement("p", { className: "text-xs font-bold", style: { fontFamily: MONO, color: th.text } }, event.args.verdict), React.createElement("p", { className: "text-[10px] mt-1 break-all", style: { fontFamily: MONO, color: th.muted } }, event.args.claimHash)),
+                React.createElement("span", { className: "text-sm font-bold", style: { fontFamily: MONO, color: th.accent } }, `${event.args.truthScore}/100`))))));
+}
 // APP ROOT
 // ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
 function App() {
@@ -2448,8 +2506,8 @@ function App() {
                 React.createElement(WalletCtx.Provider, { value: { address: walletAddress, setAddress: setWalletAddress } },
                 React.createElement("div", { className: "min-h-screen overflow-x-hidden", style: { background: th.bg, color: th.text, fontFamily: SANS, transition: "background 0.25s,color 0.25s" } },
                     React.createElement(Header, null),
-                    page === "profile" ? React.createElement(ProfilePage, null) :
-                        page === "dashboard" ? React.createElement(DashboardPage, null) :
+                    page === "profile" ? React.createElement(LiveProfilePage, null) :
+                        page === "dashboard" ? React.createElement(LiveDashboardPage, null) :
                             React.createElement(HomePage, null),
                     showSettings && React.createElement(SettingsModal, null)))))));
 }
