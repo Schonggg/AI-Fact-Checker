@@ -12,7 +12,7 @@ import sys
 import time
 import traceback
 import uuid
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler
 from urllib.error import HTTPError, URLError
@@ -596,6 +596,10 @@ def _call_model(config, api_key, claim, article, language, search_results=None, 
     if debate_context:
         user_prompt += f"\n\nPRO/CON SUBMISSIONS (complete structured outputs):\n{json.dumps(debate_context, ensure_ascii=False)}\n\nReturn the Judge decision now."
     timeout_seconds = timeout_override or config.get("timeout", REQUEST_TIMEOUT_SECONDS)
+    deadline = started + timeout_seconds
+    primary_timeout = timeout_seconds
+    if config.get("fallback"):
+        primary_timeout = max(5, timeout_seconds // 2)
     system_prompt = {"pro": PRO_SYSTEM_PROMPT, "con": CON_SYSTEM_PROMPT, "judge": JUDGE_SYSTEM_PROMPT}.get(config.get("panel_role"), SYSTEM_PROMPT)
 
     def _attempt(model_id, timeout):
@@ -631,7 +635,7 @@ def _call_model(config, api_key, claim, article, language, search_results=None, 
         return parsed, request_id, api_response.get("usage", {}), (api_response.get("x_gonka") or api_response.get("x_joingonka") or {})
 
     try:
-        (parsed, request_id, usage, router) = _attempt(config["model"], timeout_seconds)
+        (parsed, request_id, usage, router) = _attempt(config["model"], primary_timeout)
         model_used = config["model"]
         fell_back = False
     except Exception as primary_error:
@@ -640,7 +644,8 @@ def _call_model(config, api_key, claim, article, language, search_results=None, 
         fallback = config.get("fallback")
         if fallback and fallback != config["model"]:
             try:
-                (parsed, request_id, usage, router) = _attempt(fallback, REQUEST_TIMEOUT_SECONDS)
+                fallback_timeout = max(1, int(deadline - time.perf_counter()))
+                (parsed, request_id, usage, router) = _attempt(fallback, fallback_timeout)
                 model_used = fallback
                 fell_back = True
                 fallback_note = f"Kimi unavailable; completed with MiniMax fallback. Primary error: {primary_error}"
@@ -918,9 +923,11 @@ class VerifyRequestHandler(BaseHTTPRequestHandler):
             except Exception as exc:
                 logging.warning(f"[search] web search stage failed (continuing without): {exc}")
 
+        judge_reserve = min(panel_configs["judge"]["timeout"], 20)
+        analysis_timeout = max(5, int(MAX_TOTAL_BUDGET_SECONDS - judge_reserve - (time.perf_counter() - started_at) - 2))
         with ThreadPoolExecutor(max_workers=2) as executor:
-            pro_future = executor.submit(_call_model, panel_configs["pro"], api_key, claim, article, language, search_results)
-            con_future = executor.submit(_call_model, panel_configs["con"], api_key, claim, article, language, search_results)
+            pro_future = executor.submit(_call_model, panel_configs["pro"], api_key, claim, article, language, search_results, timeout_override=analysis_timeout)
+            con_future = executor.submit(_call_model, panel_configs["con"], api_key, claim, article, language, search_results, timeout_override=analysis_timeout)
             pro_result = pro_future.result()
             con_result = con_future.result()
         elapsed = time.perf_counter() - started_at
