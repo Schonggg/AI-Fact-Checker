@@ -1971,7 +1971,7 @@ const MM = [
 const CERT_ROWS = [
     { k: "UID", v: "pending" },
     { k: "Schema", v: "#gonka-fact-v1" },
-    { k: "Attester", v: "0xGonka…Router" },
+    { k: "Attester", v: "Wallet not connected" },
     { k: "Network", v: "Base Mainnet" },
     { k: "Timestamp", v: "waiting for verification" },
     { k: "Evidence", v: "not generated" },
@@ -2033,14 +2033,14 @@ function buildTerminalData(verification, phase) {
         return { ...item, version: match ? shortHash(match.model, 22, 8) : item.version, lines: linesFromModel(match) };
     });
 }
-function attestationRows(verification) {
+function attestationRows(verification, walletAddress) {
     if (!verification)
         return CERT_ROWS;
     const att = verification.attestation || {};
     return [
         { k: "UID", v: att.uid || "pending" },
         { k: "Schema", v: att.schema || "#gonka-fact-v1" },
-        { k: "Attester", v: "0xGonka…Router" },
+        { k: "Attester", v: walletAddress || "Wallet not connected" },
         { k: "Network", v: att.network || "Base Mainnet" },
         { k: "Timestamp", v: verification.createdAt ? new Date(verification.createdAt).toLocaleString() : "generated" },
         { k: "Evidence", v: shortHash(att.evidenceHash, 10, 8) },
@@ -2280,6 +2280,7 @@ function EcoDetailModal({ eco, onClose }) {
 // ═══════════════════════════════════════════════════════════════════════════
 function HomePage() {
     const { th, isDark } = useTh();
+    const { address: walletAddress } = useWallet();
     const [minted, setMinted] = useState(false);
     const [selectedEco, setSelectedEco] = useState(null);
     const { verification, phase } = useVerify();
@@ -2295,7 +2296,9 @@ function HomePage() {
     const sources = verification ? (verification.references || []) : [];
     const terminalData = buildTerminalData(verification, phase);
     const verdictInfo = verdictDisplay(verification?.verdict);
-    const certRows = attestationRows(verification);
+    const certRows = attestationRows(verification, walletAddress);
+    const attestation = verification?.attestation || {};
+    const canAttest = Boolean(walletAddress && verification && verification.verdict !== "unverified" && attestation.status === "ready_to_mint" && attestation.metadataURI && attestation.gonkaRequestIds?.length);
     return (React.createElement(React.Fragment, null,
         React.createElement("section", { className: "relative pt-20 pb-16 px-6 overflow-hidden" },
             React.createElement(NetworkBg, null),
@@ -2410,20 +2413,20 @@ function HomePage() {
                                                 React.createElement("span", { className: "text-[10px] tracking-wider", style: { fontFamily: MONO, color: th.accent } }, "TRUTHREGISTRY ATTESTATION")),
                                             React.createElement("div", { className: "flex items-center gap-1.5" },
                                                 React.createElement("div", { className: "w-1.5 h-1.5 rounded-full", style: { background: th.success, boxShadow: `0 0 6px ${th.success}` } }),
-                                                React.createElement("span", { className: "text-[9px]", style: { fontFamily: MONO, color: th.success } }, "ON-CHAIN"))),
+                                                React.createElement("span", { className: "text-[9px]", style: { fontFamily: MONO, color: canAttest ? th.success : th.muted } }, canAttest ? "READY TO ATTEST" : "NOT ATTESTED"))),
                                         certRows.map(r => (React.createElement("div", { key: r.k, className: "flex items-center justify-between py-1.5 border-b", style: { borderColor: `${th.border}40` } },
                                             React.createElement("span", { className: "text-[9px]", style: { fontFamily: MONO, color: th.muted } }, r.k),
                                             React.createElement("span", { className: "text-[9px]", style: { fontFamily: MONO, color: th.text } }, r.v)))),
                                         React.createElement("div", { className: "mt-3 pt-3 border-t overflow-hidden", style: { borderColor: th.border } },
                                             React.createElement("p", { className: "text-[9px] mb-1.5", style: { fontFamily: MONO, color: th.muted } }, "CLAIM HASH"),
                                             React.createElement("div", { className: "flex w-[200%]" },
-                                                React.createElement("p", { className: "text-[10px] break-all leading-relaxed ticker-track", style: { fontFamily: MONO, color: th.accent, filter: "drop-shadow(0 0 2px rgba(129,140,248,0.5))" } }, `${verification?.attestation?.claimHash || "Submit a claim to generate a deterministic SHA-256 claim hash"}\u00A0\u00A0\u00A0\u00A0${verification?.attestation?.claimHash || "Submit a claim to generate a deterministic SHA-256 claim hash"}`)))),
+                                                React.createElement("p", { className: "text-[10px] break-all leading-relaxed", style: { fontFamily: MONO, color: th.accent, filter: "drop-shadow(0 0 2px rgba(129,140,248,0.5))" } }, verification?.attestation?.claimHash || "Waiting for verification to generate a Keccak-256 claim hash"))),
                                     React.createElement("div", { className: "flex items-center gap-3 p-3 rounded-lg mb-5", style: { background: `${th.success}09`, border: `1px solid ${th.success}25` } },
                                         React.createElement("span", { className: "text-base", style: { color: th.success } }, "\u2713"),
                                         React.createElement("div", null,
                                             React.createElement("p", { className: "text-[10px] font-bold tracking-wider", style: { fontFamily: MONO, color: th.success } }, `VERDICT: ${verification ? verdictInfo.label : "DEMO"}`),
                                             React.createElement("p", { className: "text-[9px]", style: { color: th.muted } }, verification ? `Score: ${verification.truthScore || 0}/100 · Confidence: ${verification.confidence || 0}%` : "Run verification to populate live result"))),
-                                    React.createElement("button", { onClick: () => verification && setMinted(true), disabled: !verification, className: "mint-btn w-full py-3.5 text-[11px] font-bold tracking-[0.2em] rounded-lg relative z-20", style: { fontFamily: MONO, color: th.accentFg, opacity: verification ? 1 : 0.55, cursor: verification ? "pointer" : "not-allowed" } }, minted ? "✓ TRUTHREGISTRY READY" : "PREPARE TRUTHREGISTRY ATTESTATION"),
+                                    React.createElement("button", { onClick: () => { if (!canAttest) return; setMinted(true); }, disabled: !canAttest, className: "mint-btn w-full py-3.5 text-[11px] font-bold tracking-[0.2em] rounded-lg relative z-20", style: { fontFamily: MONO, color: th.accentFg, opacity: canAttest ? 1 : 0.45, cursor: canAttest ? "pointer" : "not-allowed" } }, minted ? "✓ TRUTHREGISTRY READY" : verification?.verdict === "unverified" ? "ATTESTATION BLOCKED · UNVERIFIED" : "PREPARE TRUTHREGISTRY ATTESTATION"),
                                     minted && (React.createElement("p", { className: "text-center text-[10px] mt-2", style: { fontFamily: MONO, color: th.success } }, `tx: ${shortHash(verification?.attestation?.evidenceHash, 8, 6)} · Base Mainnet`))))))),
                 verification && sources.length > 0 && React.createElement(VerificationSources, { sources: sources }))),
         React.createElement("footer", { className: "border-t px-6 py-7", style: { borderColor: th.border } },
