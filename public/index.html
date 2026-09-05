@@ -1019,7 +1019,7 @@ const SettingsModal = (function () {
     }
     const SECTIONS = [
         { id: "router", label: "AI Router", icon: c => React.createElement(IcCpu, { c: c }) },
-        { id: "web3", label: "Web3 & EAS", icon: c => React.createElement(IcChain, { c: c }) },
+        { id: "web3", label: "Web3 & TruthRegistry", icon: c => React.createElement(IcChain, { c: c }) },
         { id: "general", label: "General", icon: c => React.createElement(IcSliders, { c: c }) },
     ];
     // ─── Settings modal ───────────────────────────────────────────────────────────
@@ -1133,7 +1133,7 @@ const SettingsModal = (function () {
                                     React.createElement("p", { className: "text-[12px] font-medium", style: { color: th.text } }, "EAS Schema Version"),
                                     React.createElement("p", { className: "text-[10px] mt-0.5", style: { color: th.muted } }, "Schema used for on-chain attestation")),
                                 React.createElement(Select, { value: easSchema, onChange: setEasSchema, options: schemaOpts })),
-                            React.createElement(ToggleRow, { label: "Auto-Mint EAS Certificate", desc: "Automatically write attestation on-chain after every verification", on: autoMint, onChange: setAutoMint }),
+                            React.createElement(ToggleRow, { label: "Auto-Attest TruthRegistry", desc: "Automatically write attestation on-chain after every verification", on: autoMint, onChange: setAutoMint }),
                             React.createElement(ToggleRow, { label: "Auto-Pin to IPFS", desc: "Store claim data and attestation proof on IPFS after minting", on: ipfsPin, onChange: setIpfsPin }),
                             React.createElement("div", { className: "mt-4 p-3 rounded-lg", style: { background: `${th.accent}07`, border: `1px solid ${th.accent}18` } },
                                 React.createElement("p", { className: "text-[10px] font-bold mb-1", style: { fontFamily: MONO, color: th.accent } }, "ESTIMATED GAS COST"),
@@ -1525,7 +1525,7 @@ const TICKER_ITEMS = [
     { label: "DeepSeek R1 · ONLINE", ok: true },
     { label: "Kimi v1 · ONLINE", ok: true },
     { label: "MiniMax · ONLINE", ok: true },
-    { label: "EAS Base Mainnet · ACTIVE", ok: true },
+    { label: "TruthRegistry Arbitrum Sepolia · ACTIVE", ok: true },
     { label: "IPFS · SYNCED", ok: true },
     { label: "Arbitrum · FINALIZED", ok: true },
     { label: "Gonka Router · v2.1", ok: false },
@@ -2429,12 +2429,12 @@ function HomePage() {
                                     React.createElement("div", { className: "digital-rain-col", style: { display: 'flex', gap: 10, flexWrap: 'wrap', padding: 10 } }, Array.from({ length: 300 }).map((_, i) => (React.createElement("span", { key: i }, Math.random().toString(16).substring(2, 4).toUpperCase()))))),
                                 React.createElement("div", { className: "h-px relative z-10", style: { background: `linear-gradient(to right,transparent,${th.accent},transparent)` } }),
                                 React.createElement("div", { className: "relative p-6 flex flex-col h-full z-10" },
-                                    React.createElement("p", { className: "text-[11px] tracking-widest mb-4", style: { fontFamily: MONO, color: th.muted } }, "EAS CERTIFICATE"),
+                                    React.createElement("p", { className: "text-[11px] tracking-widest mb-4", style: { fontFamily: MONO, color: th.muted } }, "TRUTHREGISTRY CERTIFICATE"),
                                     React.createElement("div", { className: "rounded-lg p-4 mb-4", style: { background: `${th.accent}05`, border: `1px solid ${th.accent}18` } },
                                         React.createElement("div", { className: "flex items-center justify-between mb-3" },
                                             React.createElement("div", { className: "flex items-center gap-2" },
                                                 React.createElement("div", { className: "w-5 h-5 rounded flex items-center justify-center text-xs", style: { background: `${th.accent}18`, color: th.accent } }, "\u2726"),
-                                                React.createElement("span", { className: "text-[10px] tracking-wider", style: { fontFamily: MONO, color: th.accent } }, "EAS ATTESTATION")),
+                                                React.createElement("span", { className: "text-[10px] tracking-wider", style: { fontFamily: MONO, color: th.accent } }, "TRUTHREGISTRY ATTESTATION")),
                                             React.createElement("div", { className: "flex items-center gap-1.5" },
                                                 React.createElement("div", { className: "w-1.5 h-1.5 rounded-full", style: { background: th.success, boxShadow: `0 0 6px ${th.success}` } }),
                                                 React.createElement("span", { className: "text-[9px]", style: { fontFamily: MONO, color: th.success } }, "ON-CHAIN"))),

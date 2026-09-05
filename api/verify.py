@@ -607,30 +607,25 @@ def _call_model(config, api_key, claim, article, language, search_results=None):
         return parsed, api_response.get("id", ""), api_response.get("usage", {}), (api_response.get("x_gonka") or api_response.get("x_joingonka") or {})
 
     try:
-        # 1) 尝试主模型（Kimi 用更短超时）
         (parsed, request_id, usage, router) = _attempt(config["model"], timeout_seconds)
         model_used = config["model"]
         fell_back = False
-    except (HTTPError, URLError, TimeoutError) as exc:
-        # 2) 主模型超时/失败 + 配置了兜底模型 → 降级 DeepSeek
+    except Exception as primary_error:
+        # Kimi is best-effort: timeouts, 5xx responses, unavailable channels, and
+        # malformed JSON all continue through the same DeepSeek fallback path.
         fallback = config.get("fallback")
         if fallback and fallback != config["model"]:
             try:
                 (parsed, request_id, usage, router) = _attempt(fallback, REQUEST_TIMEOUT_SECONDS)
                 model_used = fallback
                 fell_back = True
-            except Exception as exc2:
+                fallback_note = f"Kimi unavailable; completed with DeepSeek fallback. Primary error: {primary_error}"
+            except Exception as fallback_error:
                 latency_ms = round((time.perf_counter() - started) * 1000)
-                return _fallback_result(config, claim, article, f"Primary {config['model']}: {exc}; fallback {fallback}: {exc2}", latency_ms)
+                return _fallback_result(config, claim, article, f"Primary {config['model']}: {primary_error}; fallback {fallback}: {fallback_error}", latency_ms)
         else:
-            if isinstance(exc, HTTPError):
-                detail = exc.read().decode("utf-8", errors="replace")[:1000]
-                return _fallback_result(config, claim, article, _format_http_error(exc, detail), round((time.perf_counter() - started) * 1000))
-            return _fallback_result(config, claim, article, _format_connection_error(exc), round((time.perf_counter() - started) * 1000))
-    except Exception as exc:
-        # 主模型返回无法解析的 JSON 等非网络异常 → 保守降级为 unverified
-        latency_ms = round((time.perf_counter() - started) * 1000)
-        return _fallback_result(config, claim, article, f"Invalid model response: {exc}", latency_ms)
+            latency_ms = round((time.perf_counter() - started) * 1000)
+            return _fallback_result(config, claim, article, f"Model response failed: {primary_error}", latency_ms)
 
     metrics = parsed.get("metrics") if isinstance(parsed.get("metrics"), dict) else {}
     steps = parsed.get("reasoning_steps") if isinstance(parsed.get("reasoning_steps"), list) else []
@@ -644,7 +639,7 @@ def _call_model(config, api_key, claim, article, language, search_results=None):
         "model_display": config["model"],
         "model_used": model_used,  # 实际执行模型（含降级情况）
         "fell_back": fell_back,
-        "summary": str(parsed.get("summary") or "").strip(),
+        "summary": (f"{fallback_note} " if fell_back else "") + str(parsed.get("summary") or "").strip(),
         "steps": [
             {
                 "label": str(step.get("label") or "Verification step").strip(),
@@ -845,10 +840,10 @@ class VerifyRequestHandler(BaseHTTPRequestHandler):
         settings = body.get("settings") if isinstance(body.get("settings"), dict) else {}
         enabled = settings.get("agents") if isinstance(settings.get("agents"), dict) else {}
         requested_configs = [config for config in MODEL_CONFIGS if enabled.get(config["provider"].lower(), True)]
-        configs = [config for config in requested_configs if config["model"] in available_models]
         unavailable_models = [config["model"] for config in requested_configs if config["model"] not in available_models]
+        configs = requested_configs
         if len(configs) < 2:
-            _json_response(self, 503, {"status": "error", "error": "Fewer than two configured models are currently available from Gonka.", "unavailableModels": unavailable_models, "availableModels": sorted(available_models), "baseUrl": GONKA_BASE_URL})
+            _json_response(self, 400, {"status": "error", "error": "Enable at least two AI agents for adversarial verification."})
             return
         language = str(settings.get("language") or "en")[:20]
 
