@@ -13,6 +13,7 @@
 
 <script crossorigin src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script>
 <script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://cdn.jsdelivr.net/npm/ethers@6.13.5/dist/ethers.umd.min.js"></script>
 
 <style>
 html, body, #root { height: 100%; margin: 0; }
@@ -266,6 +267,20 @@ const LIGHT = {
 };
 const MONO = "'JetBrains Mono',monospace";
 const SANS = "Inter,sans-serif";
+const WEB3_CONFIG = Object.freeze({
+    chainId: 421614,
+    chainIdHex: "0x66eee",
+    chainName: "Arbitrum Sepolia",
+    explorerUrl: "https://sepolia.arbiscan.io",
+    truthRegistryAddress: "0xb0DeedAe473dc32DD2B69bFdEc554e3b34119c58",
+    microBountyAddress: "0xb391DB173D6211e246b174F91E790662C5Bb9a24",
+});
+const MICRO_BOUNTY_ABI = [
+    "function fundVerification(bytes32 claimHash) payable",
+    "function claimBounty(bytes32 claimHash)",
+    "function getBounty(bytes32 claimHash) view returns (uint256 amount, address funder, bool claimed, uint256 timestamp)",
+    "function MIN_BOUNTY() view returns (uint256)",
+];
 const DEFAULT_GONKA_SETTINGS = {
     consensus: "balanced",
     agents: { kimi: true, deepseek: true, minimax: true },
@@ -1430,10 +1445,21 @@ const WALLETS = [
 function WalletModal({ onClose, onConnect }) {
     const { th } = useTh();
     const [connecting, setConnecting] = useState(null);
+    const [error, setError] = useState(null);
     const handleConnect = async (id) => {
         setConnecting(id);
-        await new Promise(r => setTimeout(r, 1400));
-        onConnect(id);
+        setError(null);
+        try {
+            const address = await onConnect(id);
+            if (address)
+                onClose();
+        }
+        catch (err) {
+            setError(err && err.message ? err.message : "Wallet connection failed.");
+        }
+        finally {
+            setConnecting(null);
+        }
     };
     return (React.createElement("div", { className: "fixed inset-0 z-50 flex items-center justify-center overlay-in", style: { background: "rgba(0,0,0,0.72)", backdropFilter: "blur(6px)" }, onClick: e => e.target === e.currentTarget && onClose() },
         React.createElement("div", { className: "w-full max-w-sm mx-4 rounded-2xl overflow-hidden modal-in", style: { background: th.card, border: `1px solid ${th.border}`, boxShadow: "0 24px 64px rgba(0,0,0,0.5)" } },
@@ -1453,6 +1479,7 @@ function WalletModal({ onClose, onConnect }) {
                     React.createElement("p", { className: "text-sm font-semibold", style: { color: th.text, fontFamily: MONO } }, w.name),
                     React.createElement("p", { className: "text-[11px] mt-0.5", style: { color: th.muted } }, connecting === w.id ? "Connecting…" : w.desc)),
                 !connecting && React.createElement(IconChevronRight, { c: th.muted }))))),
+            error && React.createElement("p", { className: "px-6 pb-3 text-[10px] leading-relaxed", style: { color: th.err, fontFamily: MONO } }, error),
             React.createElement("div", { className: "px-6 py-4 border-t", style: { borderColor: th.border } },
                 React.createElement("p", { className: "text-center text-[10px]", style: { color: th.muted } },
                     "By connecting, you agree to the ",
@@ -1528,15 +1555,19 @@ function Header() {
     const [walletPhase, setWalletPhase] = useState("idle");
     const [walletAddr, setWalletAddr] = useState("");
     const [navModal, setNavModal] = useState(null);
-    const handleConnect = (id) => {
-        var _a;
-        const addresses = {
-            metamask: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e",
-            walletconnect: "0x1aB2c3D4e5F6a7B8c9D0e1F2a3B4c5D6e7F8a9B0",
-            coinbase: "0xA1b2C3d4E5f6A7B8c9D0e1F2A3b4C5d6E7f8A9b0",
-        };
-        setWalletAddr((_a = addresses[id]) !== null && _a !== void 0 ? _a : addresses.metamask);
+    const handleConnect = async () => {
+        if (!window.ethereum)
+            throw new Error("No browser wallet detected. Install MetaMask or Coinbase Wallet.");
+        const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+        const address = accounts && accounts[0];
+        if (!address)
+            throw new Error("The wallet did not return an account.");
+        const chainId = await window.ethereum.request({ method: "eth_chainId" });
+        if (String(chainId).toLowerCase() !== WEB3_CONFIG.chainIdHex)
+            throw new Error("Switch your wallet to Arbitrum Sepolia before continuing.");
+        setWalletAddr(address);
         setWalletPhase("connected");
+        return address;
     };
     return (React.createElement(React.Fragment, null,
         React.createElement("header", { className: "sticky top-0 z-40 border-b", style: { background: th.card, backdropFilter: "blur(16px)", borderColor: th.border } },
@@ -1567,9 +1598,66 @@ function Header() {
 // ═══════════════════════════════════════════════════════════════════════════
 // CLAIM INPUT
 // ═══════════════════════════════════════════════════════════════════════════
+function MicroBountyPanel({ verification }) {
+    const { th } = useTh();
+    const [amount, setAmount] = useState("0.001");
+    const [bounty, setBounty] = useState(null);
+    const [busy, setBusy] = useState(false);
+    const [message, setMessage] = useState(null);
+    const claimHash = verification?.attestation?.claimHash;
+    const refreshBounty = async () => {
+        if (!claimHash || !window.ethers)
+            return;
+        const provider = new window.ethers.JsonRpcProvider("https://sepolia-rollup.arbitrum.io/rpc");
+        const contract = new window.ethers.Contract(WEB3_CONFIG.microBountyAddress, MICRO_BOUNTY_ABI, provider);
+        const data = await contract.getBounty(claimHash);
+        setBounty({ amount: window.ethers.formatEther(data.amount), funder: data.funder, claimed: data.claimed });
+    };
+    useEffect(() => { refreshBounty().catch(() => setBounty(null)); }, [claimHash]);
+    const sendBountyTransaction = async (method) => {
+        setBusy(true);
+        setMessage(null);
+        try {
+            if (!window.ethereum || !window.ethers)
+                throw new Error("Connect a browser wallet first.");
+            if (!claimHash)
+                throw new Error("Run a verification before using a bounty.");
+            const provider = new window.ethers.BrowserProvider(window.ethereum);
+            const network = await provider.getNetwork();
+            if (Number(network.chainId) !== WEB3_CONFIG.chainId)
+                throw new Error("Switch your wallet to Arbitrum Sepolia.");
+            const signer = await provider.getSigner();
+            const contract = new window.ethers.Contract(WEB3_CONFIG.microBountyAddress, MICRO_BOUNTY_ABI, signer);
+            const transaction = method === "fund"
+                ? await contract.fundVerification(claimHash, { value: window.ethers.parseEther(amount) })
+                : await contract.claimBounty(claimHash);
+            await transaction.wait();
+            setMessage(`Confirmed: ${WEB3_CONFIG.explorerUrl}/tx/${transaction.hash}`);
+            await refreshBounty();
+        }
+        catch (err) {
+            setMessage(err && err.shortMessage ? err.shortMessage : err && err.message ? err.message : "Bounty transaction failed.");
+        }
+        finally {
+            setBusy(false);
+        }
+    };
+    return React.createElement("div", { className: "mt-4 rounded-xl p-4", style: { background: th.surface3, border: `1px solid ${th.border}` } },
+        React.createElement("div", { className: "flex items-center justify-between gap-3 mb-3" },
+            React.createElement("div", null,
+                React.createElement("p", { className: "text-[10px] font-bold tracking-widest", style: { fontFamily: MONO, color: th.text } }, "MICROBOUNTY"),
+                React.createElement("p", { className: "text-[10px] mt-1", style: { color: th.muted } }, bounty ? `${bounty.amount} ETH funded · ${bounty.claimed ? "claimed" : "unclaimed"}` : "Fund a verified claim on Arbitrum Sepolia")),
+            React.createElement("span", { className: "text-[9px]", style: { fontFamily: MONO, color: th.accent } }, "MIN 0.001 ETH")),
+        React.createElement("div", { className: "flex flex-wrap gap-2" },
+            React.createElement("input", { value: amount, onChange: e => setAmount(e.target.value), type: "number", min: "0.001", step: "0.001", className: "flex-1 min-w-[120px] px-3 py-2 rounded-lg text-[11px]", style: { background: th.surface2, color: th.text, border: `1px solid ${th.border}`, fontFamily: MONO } }),
+            React.createElement("button", { disabled: busy || !claimHash, onClick: () => sendBountyTransaction("fund"), className: "px-3 py-2 rounded-lg text-[10px] font-bold tracking-wider", style: { background: th.accent, color: th.accentFg, opacity: busy || !claimHash ? 0.5 : 1, fontFamily: MONO } }, busy ? "WAITING..." : "FUND BOUNTY"),
+            React.createElement("button", { disabled: busy || !claimHash || !bounty || bounty.claimed || bounty.amount === "0.0", onClick: () => sendBountyTransaction("claim"), className: "px-3 py-2 rounded-lg text-[10px] font-bold tracking-wider", style: { background: th.surface2, color: th.success, border: `1px solid ${th.success}55`, opacity: busy || !claimHash || !bounty || bounty.claimed || bounty.amount === "0.0" ? 0.5 : 1, fontFamily: MONO } }, "CLAIM BOUNTY")),
+        message && React.createElement("p", { className: "mt-2 text-[10px] break-all", style: { color: message.startsWith("Confirmed") ? th.success : th.warn, fontFamily: MONO } }, message));
+}
+
 function ClaimInput() {
     const { th } = useTh();
-    const [text, setText] = useState("https://jamesclear.com/five-step-creative-process");
+    const [text, setText] = useState("");
     const [loading, setLoading] = useState(false);
     const [verifyStartedAt, setVerifyStartedAt] = useState(Date.now());
     const [result, setResult] = useState(null);
@@ -1604,6 +1692,8 @@ function ClaimInput() {
             if (clip && clip.trim()) {
                 setText(clip.trim());
                 setResult(null);
+                setVerification(null);
+                setPhase("idle");
                 setError(null);
                 inputRef.current?.focus();
             }
@@ -1726,7 +1816,8 @@ function ClaimInput() {
                     React.createElement("button", { onClick: handleVerify, disabled: loading || !isFilled, className: "verify-btn flex items-center justify-center text-[11px] font-bold tracking-widest rounded transition-all duration-200", style: { fontFamily: MONO, background: isFilled ? th.accent : `${th.accent}50`, color: th.accentFg,
                             boxShadow: isFilled ? `0 0 20px ${th.accentGlow},0 0 40px ${th.accentGlow}50` : "none",
                             minWidth: 168, paddingTop: 10, paddingBottom: 10, paddingLeft: 24, paddingRight: 24, opacity: loading ? 0.85 : 1 } }, loading ? React.createElement("span", { className: "flex items-center gap-2" }, React.createElement(Spinner, { color: th.accentFg }), "VERIFYING") : "VERIFY CLAIM →")))),
-        renderResult()));
+        renderResult(),
+        result && React.createElement(MicroBountyPanel, { verification: result })));
 }
 // ═══════════════════════════════════════════════════════════════════════════
 // ECOSYSTEM GRID
