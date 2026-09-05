@@ -1509,6 +1509,7 @@ function Header() {
     const { page, setPage } = useNav();
     const [walletPhase, setWalletPhase] = useState("idle");
     const [walletAddr, setWalletAddr] = useState("");
+    const [walletError, setWalletError] = useState(null);
     const [navModal, setNavModal] = useState(null);
     useEffect(() => {
         if (!window.ethereum || walletPhase !== "connected")
@@ -1523,6 +1524,7 @@ function Header() {
         return () => window.ethereum.removeListener?.("accountsChanged", handleAccountsChanged);
     }, [walletPhase, setAddress]);
     const handleConnect = async () => {
+        setWalletError(null);
         if (!window.ethereum)
             throw new Error("No browser wallet detected. Install MetaMask or another injected EVM wallet.");
         const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
@@ -1563,12 +1565,13 @@ function Header() {
                 ].map(({ label, action }) => (React.createElement("button", { key: label, onClick: action, className: "nav-link text-[11px] tracking-widest opacity-70", style: { fontFamily: MONO, color: th.text, background: "none", border: "none", cursor: "pointer", padding: 0 } }, label)))),
                 React.createElement("div", { className: "flex items-center gap-3" },
                     React.createElement("button", { onClick: () => setDark(!isDark), className: "w-9 h-9 flex items-center justify-center rounded-lg transition-all", style: { border: `1px solid ${th.border}`, background: "transparent" } }, isDark ? React.createElement(IconSun, { c: th.muted }) : React.createElement(IconMoon, { c: th.muted })),
-                    walletPhase === "connected" ? (React.createElement(UserModule, { address: walletAddr, onDisconnect: () => { setWalletPhase("idle"); setWalletAddr(""); setAddress(""); setPage("home"); } })) : (React.createElement("button", { onClick: () => setWalletPhase("modal"), className: "text-[11px] px-4 py-2 tracking-widest border transition-colors", style: { fontFamily: MONO, borderColor: th.accent, color: th.accent, background: "transparent" }, onMouseEnter: e => { e.currentTarget.style.background = `${th.accent}12`; }, onMouseLeave: e => { e.currentTarget.style.background = "transparent"; } }, "CONNECT WALLET")))),
+                    walletPhase === "connected" ? (React.createElement(UserModule, { address: walletAddr, onDisconnect: () => { setWalletPhase("idle"); setWalletAddr(""); setAddress(""); setPage("home"); } })) : (React.createElement("div", { className: "flex flex-col items-end gap-1" },
+                        React.createElement("button", { onClick: () => handleConnect().catch(err => setWalletError(err && err.message ? err.message : "Wallet connection failed.")), className: "text-[11px] px-4 py-2 tracking-widest border transition-colors", style: { fontFamily: MONO, borderColor: th.accent, color: th.accent, background: "transparent" }, onMouseEnter: e => { e.currentTarget.style.background = `${th.accent}12`; }, onMouseLeave: e => { e.currentTarget.style.background = "transparent"; } }, "CONNECT WALLET"),
+                        walletError && React.createElement("span", { className: "max-w-[240px] text-right text-[9px] leading-relaxed", style: { color: th.err, fontFamily: MONO } }, walletError)))),
             React.createElement("div", { className: "border-t overflow-hidden py-1.5", style: { borderColor: th.border, background: `${th.accent}05` } },
                 React.createElement("div", { className: "flex whitespace-nowrap ticker-track", style: { width: "200%" } }, [1, 2].map(rep => (React.createElement("div", { key: rep, className: "flex gap-10 px-6 text-[10px]", style: { fontFamily: MONO } }, TICKER_ITEMS.map(t => (React.createElement("span", { key: t.label, style: { color: t.ok ? th.success : th.muted } },
                     "\u25C6 ",
                     t.label))))))))),
-        walletPhase === "modal" && (React.createElement(WalletModal, { onClose: () => setWalletPhase("idle"), onConnect: handleConnect })),
         navModal === "protocol" && React.createElement(ProtocolModal, { onClose: () => setNavModal(null) }),
         navModal === "docs" && React.createElement(DocsModal, { onClose: () => setNavModal(null) })));
 }
