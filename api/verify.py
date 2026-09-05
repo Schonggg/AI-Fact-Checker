@@ -58,8 +58,8 @@ ARTICLE_TIMEOUT_SECONDS = int(os.environ.get("GONKA_ARTICLE_TIMEOUT", "15"))
 # Kimi 专属超时（秒）：超时后自动降级到 MiniMax
 KIMI_TIMEOUT_SECONDS = int(os.environ.get("GONKA_KIMI_MODEL_TIMEOUT", "40"))
 # Vercel maxDuration 预算上限（秒），保证总耗时不被掐断
-MAX_TOTAL_BUDGET_SECONDS = int(os.environ.get("GONKA_TOTAL_BUDGET_SECONDS", "56"))
-ANALYSIS_STAGE_BUDGET_SECONDS = int(os.environ.get("GONKA_ANALYSIS_STAGE_BUDGET_SECONDS", "18"))
+MAX_TOTAL_BUDGET_SECONDS = int(os.environ.get("GONKA_TOTAL_BUDGET_SECONDS", "110"))
+ANALYSIS_STAGE_BUDGET_SECONDS = int(os.environ.get("GONKA_ANALYSIS_STAGE_BUDGET_SECONDS", "35"))
 # 降级兜底模型
 FALLBACK_MODEL = os.environ.get("GONKA_FALLBACK_MODEL", "MiniMaxAI/MiniMax-M2.7")
 PINATA_TIMEOUT_SECONDS = int(os.environ.get("PINATA_TIMEOUT", "8"))
