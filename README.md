@@ -152,7 +152,9 @@ cp .env.example .env.local
 | `GONKA_MODEL_TIMEOUT` | General model request timeout in seconds. | `45` |
 | `GONKA_KIMI_MODEL_TIMEOUT` | Kimi-specific timeout in seconds. | `30` |
 | `GONKA_ARTICLE_TIMEOUT` | Article fetch timeout in seconds. | `15` |
-| `GONKA_TOTAL_BUDGET_SECONDS` | Overall request budget. Keep below Vercel's function limit. | `50` |
+| `GONKA_TOTAL_BUDGET_SECONDS` | Overall request budget. Keep below Vercel's function limit. | `56` |
+| `GONKA_ANALYSIS_STAGE_BUDGET_SECONDS` | Maximum time reserved for the parallel Pro/Con analysis stage. | `15` |
+| `GONKA_JUDGE_STAGE_RESERVE_SECONDS` | Time reserved for the final Judge stage. | `40` |
 | `GONKA_ALLOWED_ORIGIN` | CORS allow-origin value. Use a specific domain in production if needed. | `*` |
 | `LOG_LEVEL` | Backend log level. | `INFO` |
 
