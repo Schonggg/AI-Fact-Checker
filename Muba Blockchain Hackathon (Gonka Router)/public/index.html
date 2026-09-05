@@ -1538,7 +1538,7 @@ function Header() {
     }, []);
     const handleConnect = async () => {
         if (!window.ethereum)
-            throw new Error("No browser wallet detected. Install MetaMask or Coinbase Wallet.");
+            throw new Error("No browser wallet detected. Install MetaMask or another injected EVM wallet.");
         const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
         const walletAddress = accounts && accounts[0];
         if (!walletAddress || !window.ethers || !window.ethers.isAddress(walletAddress))
