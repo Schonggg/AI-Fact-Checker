@@ -1538,6 +1538,32 @@ function Header() {
     const [walletPhase, setWalletPhase] = useState("idle");
     const [walletAddr, setWalletAddr] = useState("");
     const [navModal, setNavModal] = useState(null);
+    useEffect(() => {
+        if (!window.ethereum)
+            return;
+        const refresh = async () => {
+            const accounts = await window.ethereum.request({ method: "eth_accounts" });
+            if (accounts && accounts[0]) {
+                setWalletAddr(accounts[0]);
+                setAddress(accounts[0]);
+                setWalletPhase("connected");
+            }
+            else {
+                setWalletAddr("");
+                setAddress("");
+                setWalletPhase("idle");
+            }
+        };
+        const handleAccountsChanged = (accounts) => {
+            const next = accounts && accounts[0] ? accounts[0] : "";
+            setWalletAddr(next);
+            setAddress(next);
+            setWalletPhase(next ? "connected" : "idle");
+        };
+        window.ethereum.on?.("accountsChanged", handleAccountsChanged);
+        refresh().catch(() => { });
+        return () => window.ethereum.removeListener?.("accountsChanged", handleAccountsChanged);
+    }, []);
     const handleConnect = async () => {
         if (!window.ethereum)
             throw new Error("No browser wallet detected. Install MetaMask or Coinbase Wallet.");
@@ -1780,25 +1806,11 @@ const ECOSYSTEMS = [
         features: ["Image authenticity analysis", "Deepfake detection", "Metadata verification", "Visual claim grounding"],
     },
     {
-        name: "EAS", abbr: "⬡", sub: "ATTESTATION", color: "#F59E0B",
-        desc: "Ethereum Attestation Service anchors every verdict permanently on-chain.",
-        details: "EAS is a public-good infrastructure on Ethereum and Base that lets anyone create and verify on-chain attestations. GONKA uses EAS to stamp each fact-check result as an immutable, queryable record: the claim hash, consensus score and three-model verdict are encoded into a schema and submitted in a single transaction.",
-        stats: [{ l: "NETWORK", v: "Base Mainnet" }, { l: "SCHEMA", v: "#gonka-fact-v1" }, { l: "GAS", v: "~0.0003 ETH" }, { l: "FINALITY", v: "~2 s" }],
-        features: ["Immutable verdict storage", "Public schema registry", "Cross-chain portability", "Zero-knowledge ready"],
-    },
-    {
         name: "IPFS", abbr: "∞", sub: "STORAGE", color: "#65A9DA",
         desc: "Content-addressed decentralised storage for claim evidence bundles.",
         details: "Every verification run produces an evidence bundle — raw AI responses, source URLs and metadata — pinned to IPFS via Web3.Storage. The resulting CID is embedded in the EAS attestation, giving anyone a tamper-proof path from on-chain record back to the full evidence set without trusting a centralised server.",
         stats: [{ l: "PROTOCOL", v: "IPFS / Filecoin" }, { l: "PIN SERVICE", v: "Web3.Storage" }, { l: "AVG SIZE", v: "~14 KB" }, { l: "RETRIEVAL", v: "<500 ms" }],
         features: ["Content-addressed bundles", "Filecoin persistence", "CID embedded in EAS", "Decentralised retrieval"],
-    },
-    {
-        name: "Base", abbr: "Ⓑ", sub: "L2 NETWORK", color: "#0052FF",
-        desc: "Coinbase-incubated L2 providing fast, cheap EAS attestation writes.",
-        details: "Base is an OP Stack Layer-2 secured by Ethereum. GONKA targets Base for on-chain attestations because transaction fees are under $0.01 and finality arrives in ~2 seconds — making micro-payment query fees and high-frequency verification economically viable while retaining Ethereum security guarantees.",
-        stats: [{ l: "STACK", v: "OP Stack" }, { l: "TPS", v: "~2,000 peak" }, { l: "AVG FEE", v: "<$0.01" }, { l: "FINALITY", v: "~2 s" }],
-        features: ["Sub-cent transaction fees", "EVM-equivalent execution", "Ethereum L1 security", "Coinbase ecosystem access"],
     },
     {
         name: "Arbitrum", abbr: "⟁", sub: "L2 NETWORK", color: "#28A0F0",
