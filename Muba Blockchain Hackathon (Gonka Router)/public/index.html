@@ -2082,13 +2082,13 @@ const MM = [
     { t: "verdict", s: "VERDICT: VERIFIED               [0.921]" },
 ];
 // ═══════════════════════════════════════════════════════════════════════════
-// TRUTHREGISTRY CERT DATA
+// EAS CERT DATA
 // ═══════════════════════════════════════════════════════════════════════════
 const CERT_ROWS = [
     { k: "UID", v: "pending" },
     { k: "Schema", v: "#gonka-fact-v1" },
     { k: "Attester", v: "0xGonka…Router" },
-    { k: "Network", v: "Arbitrum Sepolia" },
+    { k: "Network", v: "Base Mainnet" },
     { k: "Timestamp", v: "waiting for verification" },
     { k: "Evidence", v: "not generated" },
 ];
@@ -2157,7 +2157,7 @@ function attestationRows(verification) {
         { k: "UID", v: att.uid || "pending" },
         { k: "Schema", v: att.schema || "#gonka-fact-v1" },
         { k: "Attester", v: "0xGonka…Router" },
-        { k: "Network", v: att.network || "Arbitrum Sepolia" },
+        { k: "Network", v: att.network || "Base Mainnet" },
         { k: "Timestamp", v: verification.createdAt ? new Date(verification.createdAt).toLocaleString() : "generated" },
         { k: "Evidence", v: shortHash(att.evidenceHash, 10, 8) },
         { k: "Gonka Proof IDs", v: (Array.isArray(att.gonkaRequestIds) && att.gonkaRequestIds.length) ? att.gonkaRequestIds.map(rid => shortHash(rid, 8, 6)).join(" · ") : "3-model evidence" },
@@ -2408,7 +2408,7 @@ function HomePage() {
         { label: "BIAS", value: metrics.biasNeutrality || 0 },
         { label: "CONSENSUS", value: metrics.consensus || 0 },
     ] : RADAR;
-    const sources = verification ? (verification.references || []) : [];
+    const sources = verification ? (verification.references || []) : SOURCES;
     const terminalData = buildTerminalData(verification, phase);
     const verdictInfo = verdictDisplay(verification?.verdict);
     const certRows = attestationRows(verification);
@@ -2518,22 +2518,22 @@ function HomePage() {
                                     React.createElement("div", { className: "digital-rain-col", style: { display: 'flex', gap: 10, flexWrap: 'wrap', padding: 10 } }, Array.from({ length: 300 }).map((_, i) => (React.createElement("span", { key: i }, Math.random().toString(16).substring(2, 4).toUpperCase()))))),
                                 React.createElement("div", { className: "h-px relative z-10", style: { background: `linear-gradient(to right,transparent,${th.accent},transparent)` } }),
                                 React.createElement("div", { className: "relative p-6 flex flex-col h-full z-10" },
-                                    React.createElement("p", { className: "text-[11px] tracking-widest mb-4", style: { fontFamily: MONO, color: th.muted } }, "TRUTHREGISTRY CERTIFICATE"),
+                                    React.createElement("p", { className: "text-[11px] tracking-widest mb-4", style: { fontFamily: MONO, color: th.muted } }, "EAS CERTIFICATE"),
                                     React.createElement("div", { className: "rounded-lg p-4 mb-4", style: { background: `${th.accent}05`, border: `1px solid ${th.accent}18` } },
                                         React.createElement("div", { className: "flex items-center justify-between mb-3" },
                                             React.createElement("div", { className: "flex items-center gap-2" },
                                                 React.createElement("div", { className: "w-5 h-5 rounded flex items-center justify-center text-xs", style: { background: `${th.accent}18`, color: th.accent } }, "\u2726"),
-                                                React.createElement("span", { className: "text-[10px] tracking-wider", style: { fontFamily: MONO, color: th.accent } }, "TRUTHREGISTRY ATTESTATION")),
+                                                React.createElement("span", { className: "text-[10px] tracking-wider", style: { fontFamily: MONO, color: th.accent } }, "EAS ATTESTATION")),
                                             React.createElement("div", { className: "flex items-center gap-1.5" },
                                                 React.createElement("div", { className: "w-1.5 h-1.5 rounded-full", style: { background: th.success, boxShadow: `0 0 6px ${th.success}` } }),
-                                                React.createElement("span", { className: "text-[9px]", style: { fontFamily: MONO, color: verification ? th.success : th.muted } }, verification ? "READY" : "WAITING"))),
+                                                React.createElement("span", { className: "text-[9px]", style: { fontFamily: MONO, color: th.success } }, "ON-CHAIN"))),
                                         certRows.map(r => (React.createElement("div", { key: r.k, className: "flex items-center justify-between py-1.5 border-b", style: { borderColor: `${th.border}40` } },
                                             React.createElement("span", { className: "text-[9px]", style: { fontFamily: MONO, color: th.muted } }, r.k),
                                             React.createElement("span", { className: "text-[9px]", style: { fontFamily: MONO, color: th.text } }, r.v)))),
                                         React.createElement("div", { className: "mt-3 pt-3 border-t overflow-hidden", style: { borderColor: th.border } },
                                             React.createElement("p", { className: "text-[9px] mb-1.5", style: { fontFamily: MONO, color: th.muted } }, "CLAIM HASH"),
                                             React.createElement("div", { className: "flex w-[200%]" },
-                                                React.createElement("p", { className: "text-[10px] break-all leading-relaxed ticker-track", style: { fontFamily: MONO, color: th.accent, filter: "drop-shadow(0 0 2px rgba(129,140,248,0.5))" } }, `${verification?.attestation?.claimHash || "Submit a claim to generate a deterministic Keccak-256 claim hash"}\u00A0\u00A0\u00A0\u00A0${verification?.attestation?.claimHash || "Submit a claim to generate a deterministic Keccak-256 claim hash"}`)))),
+                                                React.createElement("p", { className: "text-[10px] break-all leading-relaxed ticker-track", style: { fontFamily: MONO, color: th.accent, filter: "drop-shadow(0 0 2px rgba(129,140,248,0.5))" } }, `${verification?.attestation?.claimHash || "Submit a claim to generate a deterministic SHA-256 claim hash"}\u00A0\u00A0\u00A0\u00A0${verification?.attestation?.claimHash || "Submit a claim to generate a deterministic SHA-256 claim hash"}`)))),
                                     React.createElement("div", { className: "flex items-center gap-3 p-3 rounded-lg mb-5", style: { background: `${th.success}09`, border: `1px solid ${th.success}25` } },
                                         React.createElement("span", { className: "text-base", style: { color: th.success } }, "\u2713"),
                                         React.createElement("div", null,
@@ -2541,7 +2541,7 @@ function HomePage() {
                                             React.createElement("p", { className: "text-[9px]", style: { color: th.muted } }, verification ? `Score: ${verification.truthScore || 0}/100 · Confidence: ${verification.confidence || 0}%` : "Run verification to populate live result"))),
                                     React.createElement("button", { onClick: () => verification && setMinted(true), disabled: !verification, className: "mint-btn w-full py-3.5 text-[11px] font-bold tracking-[0.2em] rounded-lg relative z-20", style: { fontFamily: MONO, color: th.accentFg, opacity: verification ? 1 : 0.55, cursor: verification ? "pointer" : "not-allowed" } }, minted ? "✓ ATTESTATION MINTED" : "MINT EAS ATTESTATION"),
                                     minted && (React.createElement("p", { className: "text-center text-[10px] mt-2", style: { fontFamily: MONO, color: th.success } }, `tx: ${shortHash(verification?.attestation?.evidenceHash, 8, 6)} · Base Mainnet`))))))),
-                verification && sources.length > 0 && React.createElement(VerificationSources, { sources: sources }))),
+                React.createElement(VerificationSources, { sources: sources }))),
         React.createElement("footer", { className: "border-t px-6 py-7", style: { borderColor: th.border } },
             React.createElement("div", { className: "max-w-7xl mx-auto flex flex-wrap gap-4 items-center justify-between" },
                 React.createElement("span", { className: "text-[10px]", style: { fontFamily: MONO, color: th.muted } }, "\u00A9 2024 GONKA PROTOCOL // TRUTH ON-CHAIN"),
