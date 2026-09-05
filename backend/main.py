@@ -1,4 +1,7 @@
 """
+WARNING: Deprecated local FastAPI backend. Production runs from
+Muba Blockchain Hackathon (Gonka Router)/api/verify.py on Vercel.
+
 AI Fact Checker - FastAPI Backend Entry Point
 队员 1 - Jin Yi
 Version 3.0 - 5维雷达图 + Kimi超时自动降级 + 合约存证

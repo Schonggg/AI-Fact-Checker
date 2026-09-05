@@ -6,6 +6,20 @@ Claim Parser - Extract core claims from user input
 import re
 from typing import Optional
 
+from Crypto.Hash import keccak
+
+
+CONTRACT_VERDICT_MAP = {
+    "true": "TRUE",
+    "false": "FALSE",
+    "misleading": "DISPUTED",
+}
+
+
+def normalize_claim(text: str) -> str:
+    """Normalize claim text before hashing so all clients hash identical input."""
+    return re.sub(r"\s+", " ", str(text or "").strip()).casefold()
+
 
 def extract_claim(text: str) -> str:
     """
@@ -76,5 +90,14 @@ def generate_claim_hash(claim_text: str) -> str:
     生成 claim_hash（keccak256 bytes32 hex 格式）。
     与智能合约 TruthRegistry.sol 完全对齐。
     """
-    from web3 import Web3
-    return Web3.keccak(text=claim_text.strip()).hex()
+    digest = keccak.new(digest_bits=256)
+    digest.update(normalize_claim(claim_text).encode("utf-8"))
+    return "0x" + digest.hexdigest()
+
+
+def contract_verdict(verdict: str) -> str | None:
+    """Map an API verdict to TruthRegistry's accepted uppercase values."""
+    return CONTRACT_VERDICT_MAP.get(str(verdict or "").strip().lower())
+
+
+TRUTH_REGISTRY_ADDRESS = "0xb0DeedAe473dc32DD2B69bFdEc554e3b34119c58"
