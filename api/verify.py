@@ -756,6 +756,9 @@ def _aggregate(claim, article, results, started_at):
     if judge_available:
         truth_score = _calibrate_truth_score(majority_verdict, judge["truthScore"])
         confidence = judge["confidence"]
+    else:
+        truth_score = _calibrate_truth_score("unverified", truth_score)
+        confidence = 0
     metric_names = ["factualAccuracy", "sourceQuality", "logicalConsistency", "biasNeutrality", "temporalConsistency"]
     metrics = {name: round(sum(item["metrics"][name] for item in successful) / len(successful)) for name in metric_names}
     metrics["consensus"] = round(agreement_ratio * 100)
