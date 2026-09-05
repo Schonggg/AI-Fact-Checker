@@ -95,21 +95,24 @@ MODEL_CONFIGS = [
     {
         "provider": "DeepSeek",
         "model": os.environ.get("GONKA_DEEPSEEK_MODEL", "deepseek-ai/DeepSeek-V4-Flash-0731"),
-        "role": "Adversarial evidence auditor",
+        "role": "Con - challenges the claim",
+        "panel_role": "con",
         "timeout": REQUEST_TIMEOUT_SECONDS,
         "fallback": None,
     },
     {
         "provider": "Kimi",
         "model": os.environ.get("GONKA_KIMI_MODEL", "moonshotai/Kimi-K2.6"),
-        "role": "Long-context source and timeline analyst",
+        "role": "Pro - supports the claim",
+        "panel_role": "pro",
         "timeout": KIMI_TIMEOUT_SECONDS,
         "fallback": FALLBACK_MODEL,
     },
     {
         "provider": "MiniMax",
         "model": os.environ.get("GONKA_MINIMAX_MODEL", "MiniMaxAI/MiniMax-M2.7"),
-        "role": "Logic, framing, and consensus verifier",
+        "role": "Judge - resolves the Pro/Con debate",
+        "panel_role": "judge",
         "timeout": REQUEST_TIMEOUT_SECONDS,
         "fallback": None,
     },
@@ -128,6 +131,21 @@ Rules:
 - If evidence is insufficient or the claim depends on current external facts absent from supplied text, prefer "unverified" and lower confidence.
 - Produce 4-8 useful reasoning_steps so the website can show the verification process.
 - Include supplied article/reference only when present.
+"""
+
+PRO_SYSTEM_PROMPT = SYSTEM_PROMPT + """
+Panel role: PRO.
+Find the strongest evidence and reasoning supporting the claim. Even if evidence is incomplete, make the strongest supportable pro argument and identify its limitations. Do not make the final panel decision.
+"""
+
+CON_SYSTEM_PROMPT = SYSTEM_PROMPT + """
+Panel role: CON.
+Find the strongest evidence and reasoning that the claim is false, misleading, overstated, or unsupported. Make the strongest supportable counterargument and identify its limitations. Do not make the final panel decision.
+"""
+
+JUDGE_SYSTEM_PROMPT = SYSTEM_PROMPT + """
+Panel role: JUDGE.
+You will receive complete structured outputs from Pro and Con. Resolve their competing arguments using only those submissions and supplied evidence. Do not perform a separate independent assessment or invent absent evidence.
 """
 
 
@@ -534,7 +552,7 @@ def _normalize_reference(reference, article):
     }
 
 
-def _call_model(config, api_key, claim, article, language, search_results=None):
+def _call_model(config, api_key, claim, article, language, search_results=None, debate_context=None, timeout_override=None):
     started = time.perf_counter()
     result = {
         "provider": config["provider"],
@@ -575,14 +593,17 @@ def _call_model(config, api_key, claim, article, language, search_results=None):
         + (f"REAL-TIME WEB SEARCH RESULTS (use these as real, externally-verified sources; you may cite their URLs in references):\n{search_context}\n\n" if search_context else "")
         + "Perform the independent fact-check now and return only the required JSON."
     )
-    timeout_seconds = config.get("timeout", REQUEST_TIMEOUT_SECONDS)
+    if debate_context:
+        user_prompt += f"\n\nPRO/CON SUBMISSIONS (complete structured outputs):\n{json.dumps(debate_context, ensure_ascii=False)}\n\nReturn the Judge decision now."
+    timeout_seconds = timeout_override or config.get("timeout", REQUEST_TIMEOUT_SECONDS)
+    system_prompt = {"pro": PRO_SYSTEM_PROMPT, "con": CON_SYSTEM_PROMPT, "judge": JUDGE_SYSTEM_PROMPT}.get(config.get("panel_role"), SYSTEM_PROMPT)
 
     def _attempt(model_id, timeout):
         """单次 Gonka 调用，成功返回 (parsed_dict, request_id, usage, router)，失败抛异常。"""
         payload = {
             "model": model_id,
             "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
             "temperature": 0.1,
@@ -850,8 +871,9 @@ class VerifyRequestHandler(BaseHTTPRequestHandler):
         requested_configs = [config for config in MODEL_CONFIGS if enabled.get(config["provider"].lower(), True)]
         unavailable_models = [config["model"] for config in requested_configs if config["model"] not in available_models]
         configs = requested_configs
-        if len(configs) < 2:
-            _json_response(self, 400, {"status": "error", "error": "Enable at least two AI agents for adversarial verification."})
+        panel_configs = {config["panel_role"]: config for config in configs}
+        if set(panel_configs) != {"pro", "con", "judge"}:
+            _json_response(self, 400, {"status": "error", "error": "Enable Kimi (Pro), DeepSeek (Con), and MiniMax (Judge) for Pro/Con/Judge verification."})
             return
         language = str(settings.get("language") or "en")[:20]
 
@@ -896,11 +918,15 @@ class VerifyRequestHandler(BaseHTTPRequestHandler):
             except Exception as exc:
                 logging.warning(f"[search] web search stage failed (continuing without): {exc}")
 
-        with ThreadPoolExecutor(max_workers=len(configs)) as executor:
-            futures = [executor.submit(_call_model, config, api_key, claim, article, language, search_results) for config in configs]
-            results = [future.result() for future in as_completed(futures)]
-        order = {config["provider"]: i for i, config in enumerate(MODEL_CONFIGS)}
-        results.sort(key=lambda item: order.get(item.get("provider"), 99))
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            pro_future = executor.submit(_call_model, panel_configs["pro"], api_key, claim, article, language, search_results)
+            con_future = executor.submit(_call_model, panel_configs["con"], api_key, claim, article, language, search_results)
+            pro_result = pro_future.result()
+            con_result = con_future.result()
+        elapsed = time.perf_counter() - started_at
+        judge_timeout = max(5, min(panel_configs["judge"]["timeout"], int(MAX_TOTAL_BUDGET_SECONDS - elapsed - 3)))
+        judge_result = _call_model(panel_configs["judge"], api_key, claim, article, language, search_results, debate_context={"pro": pro_result, "con": con_result}, timeout_override=judge_timeout)
+        results = [con_result, pro_result, judge_result]
         response = _aggregate(claim, article, results, started_at)
         if unavailable_models:
             response.setdefault("riskFlags", []).append("unavailable_models:" + ",".join(unavailable_models))
