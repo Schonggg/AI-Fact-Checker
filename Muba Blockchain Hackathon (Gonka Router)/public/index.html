@@ -2305,9 +2305,9 @@ function EcoDetailModal({ eco, onClose }) {
 // 
 function HomePage() {
     const { th, isDark } = useTh();
-    const [minted, setMinted] = useState(false);
+    const [attestState, setAttestState] = useState({ phase: "idle", txHash: "", error: "" });
     const [selectedEco, setSelectedEco] = useState(null);
-    const { verification, phase } = useVerify();
+    const { verification, phase, setVerification } = useVerify();
     const score = verification ? verification.truthScore ?? null : null;
     const metrics = verification?.metrics || {};
     const radarData = verification ? [
@@ -2323,7 +2323,29 @@ function HomePage() {
     const { address: walletAddress } = useWallet();
     const certRows = attestationRows(verification, walletAddress);
     const attestation = verification?.attestation || {};
-    const canAttest = Boolean(walletAddress && verification && verification.verdict !== "unverified" && attestation.status === "ready_to_mint");
+    const canAttest = Boolean(walletAddress && verification && verification.verdict !== "unverified" && attestation.status === "ready_to_mint" && attestation.metadataURI && Array.isArray(attestation.gonkaRequestIds) && attestation.gonkaRequestIds.length >= 3);
+    const submitAttestation = async () => {
+        if (!canAttest || !window.ethereum || !window.ethers)
+            return;
+        try {
+            setAttestState({ phase: "signing", txHash: "", error: "" });
+            const provider = new window.ethers.BrowserProvider(window.ethereum);
+            const signer = await provider.getSigner();
+            const contract = new window.ethers.Contract(WEB3_CONFIG.truthRegistryAddress, TRUTH_REGISTRY_WRITE_ABI, signer);
+            const transaction = await contract.attestTruth(attestation.claimHash, Number(verification.truthScore), attestation.contractVerdict, attestation.gonkaRequestIds, attestation.metadataURI);
+            setAttestState({ phase: "confirming", txHash: transaction.hash, error: "" });
+            await transaction.wait();
+            setVerification(current => ({ ...current, attestation: { ...current.attestation, status: "confirmed", txHash: transaction.hash, uid: transaction.hash } }));
+            setAttestState({ phase: "confirmed", txHash: transaction.hash, error: "" });
+        }
+        catch (error) {
+            const code = error && error.code;
+            const message = code === 4001 || code === "ACTION_REJECTED" ? "Wallet signature was cancelled." :
+                code === "INSUFFICIENT_FUNDS" ? "Insufficient Arbitrum Sepolia ETH for gas." :
+                    (error && (error.shortMessage || error.message)) || "Transaction could not be submitted.";
+            setAttestState({ phase: "error", txHash: "", error: message });
+        }
+    };
     return (React.createElement(React.Fragment, null,
         React.createElement("section", { className: "relative pt-20 pb-16 px-6 overflow-hidden" },
             React.createElement(NetworkBg, null),
@@ -2452,8 +2474,10 @@ function HomePage() {
                                         React.createElement("div", null,
                                             React.createElement("p", { className: "text-[10px] font-bold tracking-wider", style: { fontFamily: MONO, color: th.success } }, `VERDICT: ${verification ? verdictInfo.label : "DEMO"}`),
                                             React.createElement("p", { className: "text-[9px]", style: { color: th.muted } }, verification ? `Score: ${verification.truthScore || 0}/100  -  Confidence: ${verification.confidence || 0}%` : "Run verification to populate live result"))),
-                                    React.createElement("button", { onClick: () => canAttest && setMinted(true), disabled: !canAttest, className: "mint-btn w-full py-3.5 text-[11px] font-bold tracking-[0.2em] rounded-lg relative z-20", style: { fontFamily: MONO, color: th.accentFg, opacity: canAttest ? 1 : 0.45, cursor: canAttest ? "pointer" : "not-allowed" } }, minted ? "TRUTHREGISTRY READY" : !walletAddress ? "CONNECT WALLET TO ATTEST" : !verification ? "RUN VERIFICATION FIRST" : verification.verdict === "unverified" ? "ATTESTATION BLOCKED - UNVERIFIED" : "PREPARE TRUTHREGISTRY ATTESTATION"),
-                                    minted && (React.createElement("p", { className: "text-center text-[10px] mt-2", style: { fontFamily: MONO, color: th.success } }, `tx: ${shortHash(verification?.attestation?.evidenceHash, 8, 6)} - ${WEB3_CONFIG.chainName}`))))))),
+                                    React.createElement("button", { onClick: submitAttestation, disabled: !canAttest || attestState.phase === "signing" || attestState.phase === "confirming" || attestState.phase === "confirmed", className: "mint-btn w-full py-3.5 text-[11px] font-bold tracking-[0.2em] rounded-lg relative z-20", style: { fontFamily: MONO, color: th.accentFg, opacity: canAttest && attestState.phase !== "confirmed" ? 1 : 0.45, cursor: canAttest && attestState.phase !== "confirmed" ? "pointer" : "not-allowed" } }, attestState.phase === "signing" ? "WAITING FOR WALLET SIGNATURE..." : attestState.phase === "confirming" ? "CONFIRMING ON ARBITRUM..." : attestState.phase === "confirmed" ? "ATTESTED ON-CHAIN" : !walletAddress ? "CONNECT WALLET TO ATTEST" : !verification ? "RUN VERIFICATION FIRST" : verification.verdict === "unverified" ? "ATTESTATION BLOCKED - UNVERIFIED" : !attestation.metadataURI ? "EVIDENCE PINNING REQUIRED" : "ATTEST TO TRUTHREGISTRY"),
+                                    attestState.phase === "confirming" && React.createElement("a", { href: `${WEB3_CONFIG.explorerUrl}/tx/${attestState.txHash}`, target: "_blank", rel: "noreferrer", className: "block text-center text-[10px] mt-2", style: { fontFamily: MONO, color: th.accent } }, `Pending: ${shortHash(attestState.txHash, 10, 8)}`),
+                                    attestState.phase === "confirmed" && React.createElement("a", { href: `${WEB3_CONFIG.explorerUrl}/tx/${attestState.txHash}`, target: "_blank", rel: "noreferrer", className: "block text-center text-[10px] mt-2", style: { fontFamily: MONO, color: th.success } }, `Confirmed: ${shortHash(attestState.txHash, 10, 8)} - ${WEB3_CONFIG.chainName}`),
+                                    attestState.phase === "error" && React.createElement("p", { className: "text-center text-[10px] mt-2", style: { fontFamily: MONO, color: th.err } }, attestState.error)))))),
                 verification && sources.length > 0 && React.createElement(VerificationSources, { sources: sources }))),
         React.createElement("footer", { className: "border-t px-6 py-7", style: { borderColor: th.border } },
             React.createElement("div", { className: "max-w-7xl mx-auto flex flex-wrap gap-4 items-center justify-between" },
@@ -2467,6 +2491,9 @@ function HomePage() {
 // LIVE PROFILE/DASHBOARD
 const TRUTH_REGISTRY_READ_ABI = [
     "event TruthAttested(bytes32 indexed claimHash, uint8 truthScore, string verdict, string[] gonkaRequestIds, address indexed attester, uint256 timestamp)",
+];
+const TRUTH_REGISTRY_WRITE_ABI = [
+    "function attestTruth(bytes32 claimHash, uint8 truthScore, string verdict, string[] gonkaRequestIds, string metadataURI) external returns (bool)",
 ];
 function LiveProfilePage() {
     const { th } = useTh();
