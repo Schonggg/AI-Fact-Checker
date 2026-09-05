@@ -2007,7 +2007,7 @@ function linesFromModel(model) {
         s: `[${String(step.status || "INFO").toUpperCase()}] ${step.label}: ${step.detail}`,
     })) : [];
     return [
-        ...(model.fell_back ? [{ t: "fallback", s: "Kimi unavailable - MiniMax has taken over" }] : []),
+        ...(model.fell_back ? [{ t: "fallback", s: `${model.provider || "Primary model"} unavailable - MiniMax has taken over` }] : []),
         { t: "info", s: model.role || "Verification agent online" },
         ...steps,
         { t: "info", s: "--------------------------------------" },

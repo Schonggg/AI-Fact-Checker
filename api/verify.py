@@ -53,12 +53,12 @@ _load_local_env()
 
 MAX_INPUT_CHARS = 12000
 MAX_ARTICLE_CHARS = 28000
-REQUEST_TIMEOUT_SECONDS = int(os.environ.get("GONKA_MODEL_TIMEOUT", "45"))
+REQUEST_TIMEOUT_SECONDS = int(os.environ.get("GONKA_MODEL_TIMEOUT", "50"))
 ARTICLE_TIMEOUT_SECONDS = int(os.environ.get("GONKA_ARTICLE_TIMEOUT", "15"))
-# Kimi 专属超时（秒）：超过即自动降级到 DeepSeek，避免慢模型拖垮整单
-KIMI_TIMEOUT_SECONDS = int(os.environ.get("GONKA_KIMI_MODEL_TIMEOUT", "30"))
+# Kimi 专属超时（秒）：超时后自动降级到 MiniMax
+KIMI_TIMEOUT_SECONDS = int(os.environ.get("GONKA_KIMI_MODEL_TIMEOUT", "40"))
 # Vercel maxDuration 预算上限（秒），保证总耗时不被掐断
-MAX_TOTAL_BUDGET_SECONDS = int(os.environ.get("GONKA_TOTAL_BUDGET_SECONDS", "50"))
+MAX_TOTAL_BUDGET_SECONDS = int(os.environ.get("GONKA_TOTAL_BUDGET_SECONDS", "56"))
 # 降级兜底模型
 FALLBACK_MODEL = os.environ.get("GONKA_FALLBACK_MODEL", "MiniMaxAI/MiniMax-M2.7")
 PINATA_TIMEOUT_SECONDS = int(os.environ.get("PINATA_TIMEOUT", "8"))
@@ -98,7 +98,7 @@ MODEL_CONFIGS = [
         "role": "Con - challenges the claim",
         "panel_role": "con",
         "timeout": REQUEST_TIMEOUT_SECONDS,
-        "fallback": None,
+        "fallback": FALLBACK_MODEL,
     },
     {
         "provider": "Kimi",
@@ -639,8 +639,7 @@ def _call_model(config, api_key, claim, article, language, search_results=None, 
         model_used = config["model"]
         fell_back = False
     except Exception as primary_error:
-        # Kimi is best-effort: timeouts, 5xx responses, unavailable channels, and
-        # malformed JSON all continue through the same MiniMax fallback path.
+        # Pro and Con both fail over to MiniMax on timeouts, upstream errors, or malformed JSON.
         fallback = config.get("fallback")
         if fallback and fallback != config["model"]:
             try:
@@ -648,7 +647,7 @@ def _call_model(config, api_key, claim, article, language, search_results=None, 
                 (parsed, request_id, usage, router) = _attempt(fallback, fallback_timeout)
                 model_used = fallback
                 fell_back = True
-                fallback_note = f"Kimi unavailable; completed with MiniMax fallback. Primary error: {primary_error}"
+                fallback_note = f"{config['provider']} unavailable; completed with MiniMax fallback. Primary error: {primary_error}"
             except Exception as fallback_error:
                 latency_ms = round((time.perf_counter() - started) * 1000)
                 return _fallback_result(config, claim, article, f"Primary {config['model']}: {primary_error}; fallback {fallback}: {fallback_error}", latency_ms)
@@ -923,7 +922,7 @@ class VerifyRequestHandler(BaseHTTPRequestHandler):
             except Exception as exc:
                 logging.warning(f"[search] web search stage failed (continuing without): {exc}")
 
-        judge_reserve = min(panel_configs["judge"]["timeout"], 20)
+        judge_reserve = min(panel_configs["judge"]["timeout"], 25)
         analysis_timeout = max(5, int(MAX_TOTAL_BUDGET_SECONDS - judge_reserve - (time.perf_counter() - started_at) - 2))
         with ThreadPoolExecutor(max_workers=2) as executor:
             pro_future = executor.submit(_call_model, panel_configs["pro"], api_key, claim, article, language, search_results, timeout_override=analysis_timeout)
