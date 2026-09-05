@@ -131,7 +131,7 @@ html, body, #root {
 .radar-node-pulse    { animation: radar-node-glow 4s ease-in-out infinite; }
 .radar-ripple        { animation: radar-ripple 4.5s ease-in-out infinite; transform-origin: 50% 50%; }
 
-/* --- EAS Certificate ---------------------------------------------------- */
+/* --- TruthRegistry Certificate ---------------------------------------------------- */
 @keyframes digital-rain {
   0% { transform: translateY(-100%); }
   100% { transform: translateY(100%); }
@@ -267,7 +267,7 @@ const LIGHT = {
 };
 const MONO = "'JetBrains Mono',monospace";
 const SANS = "Inter,sans-serif";
-const WEB3_CONFIG = Object.freeze({ chainId: 421614, chainIdHex: "0x66eee", chainName: "Arbitrum Sepolia", explorerUrl: "https://sepolia.arbiscan.io", truthRegistryAddress: "0xb0DeedAe473dc32DD2B69bFdEc554e3b34119c58" });
+const WEB3_CONFIG = Object.freeze({ chainId: 421614, chainIdHex: "0x66eee", chainName: "Arbitrum Sepolia", explorerUrl: "https://sepolia.arbiscan.io", truthRegistryAddress: "0xb0DeedAe473dc32DD2B69bFdEc554e3b34119c58", schemaId: "#gonka-fact-v1" });
 const DEFAULT_GONKA_SETTINGS = {
     consensus: "balanced",
     agents: { kimi: true, deepseek: true, minimax: true },
@@ -461,7 +461,7 @@ const DashboardPage = (function () {
                 React.createElement("div", { className: "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" },
                     React.createElement(MetCard, { label: "TOTAL CLAIMS VERIFIED", value: "234", unit: "", sub: "All-time verifications", color: "#00D4FF", icon: "\u25C8" }),
                     React.createElement(MetCard, { label: "AVERAGE TRUTH SCORE", value: "84.2", unit: "%", sub: "Across all 234 claims", color: "#10B981", icon: "\u25CE" }),
-                    React.createElement(MetCard, { label: "TOTAL EAS MINTED", value: "198", unit: "", sub: "On-chain attestations", color: "#F59E0B", icon: "\u2B21" }),
+                    React.createElement(MetCard, { label: "TOTAL ATTESTATIONS MINTED", value: "198", unit: "", sub: "On-chain attestations", color: "#F59E0B", icon: "\u2B21" }),
                     React.createElement(MetCard, { label: "REMAINING BALANCE", value: "8,234", unit: "GNKA", sub: "\u2248 $411.70 USD at live rate", color: "#8B5CF6", icon: "\u25C6" })),
                 React.createElement("div", { className: "rounded-2xl overflow-hidden", style: { background: th.card, border: `1px solid ${th.border}` } },
                     React.createElement("div", { className: "flex items-center justify-between px-6 py-4 border-b", style: { borderColor: th.border } },
@@ -798,13 +798,13 @@ const ProfilePage = (function () {
             React.createElement("td", { className: "px-4 py-3.5" },
                 React.createElement(TruthBadge, { score: tx.score, verdict: tx.verdict })),
             React.createElement("td", { className: "px-5 py-3.5 text-center" },
-                React.createElement("a", { href: "#", target: "_blank", rel: "noreferrer", className: "inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-all text-[10px]", style: { fontFamily: MONO, color: th.accent, background: `${th.accent}0d`, border: `1px solid ${th.accent}20` }, onMouseEnter: e => { e.currentTarget.style.background = `${th.accent}1a`; }, onMouseLeave: e => { e.currentTarget.style.background = `${th.accent}0d`; }, title: `View EAS attestation: ${tx.eas}` },
+                React.createElement("a", { href: "#", target: "_blank", rel: "noreferrer", className: "inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-all text-[10px]", style: { fontFamily: MONO, color: th.accent, background: `${th.accent}0d`, border: `1px solid ${th.accent}20` }, onMouseEnter: e => { e.currentTarget.style.background = `${th.accent}1a`; }, onMouseLeave: e => { e.currentTarget.style.background = `${th.accent}0d`; }, title: `View attestation: ${tx.eas}` },
                     React.createElement("span", null, tx.eas),
                     React.createElement(IcExternalLink, { c: th.accent })))));
     }
     function TransactionTable() {
         const { th } = useTh();
-        const theadCells = ["DATE", "CLAIM / URL", "TOKENS", "TRUTH SCORE", "EAS ATTESTATION"];
+        const theadCells = ["DATE", "CLAIM / URL", "TOKENS", "TRUTH SCORE", "ATTESTATION"];
         return (React.createElement("div", { className: "relative rounded-2xl overflow-hidden", style: { background: th.card, border: `1px solid ${th.border}` } },
             React.createElement(NetworkBg, null),
             React.createElement("div", { className: "relative" },
@@ -1053,7 +1053,7 @@ const SettingsModal = (function () {
             setTimeout(() => setShowSettings(false), 650);
         };
         const networkOpts = [
-            { value: "base", label: "Base Mainnet", badge: "LIVE" },
+            { value: "arbitrum-sepolia", label: "Arbitrum Sepolia", badge: "LIVE" },
             { value: "arbitrum", label: "Arbitrum One", badge: "LIVE" },
             { value: "sepolia", label: "Ethereum Sepolia", badge: "TESTNET" },
         ];
@@ -1103,7 +1103,7 @@ const SettingsModal = (function () {
                                 React.createElement("div", { className: "w-1.5 h-1.5 rounded-full animate-pulse", style: { background: th.success } }),
                                 React.createElement("span", { className: "text-[9px]", style: { fontFamily: MONO, color: th.success } }, "ALL SYSTEMS")),
                             React.createElement("p", { className: "text-[9px]", style: { fontFamily: MONO, color: th.muted } }, "3/3 agents online"),
-                            React.createElement("p", { className: "text-[9px]", style: { fontFamily: MONO, color: th.muted } }, "EAS: connected"))),
+                            React.createElement("p", { className: "text-[9px]", style: { fontFamily: MONO, color: th.muted } }, "TruthRegistry: connected"))),
                     React.createElement("div", { className: "flex-1 overflow-y-auto p-6" },
                         section === "router" && (React.createElement("div", null,
                             React.createElement("h2", { className: "text-[13px] font-bold mb-1", style: { fontFamily: MONO, color: th.text } }, "AI Router Configuration"),
@@ -1119,18 +1119,18 @@ const SettingsModal = (function () {
                                 React.createElement(AgentRow, { name: "Verifier MiniMax", role: "Abab6.5 \u00B7 consensus arbiter", color: "#8B5CF6", on: agents.minimax, onChange: v => setAgents(a => ({ ...a, minimax: v })) })),
                             React.createElement("p", { className: "text-[10px] mt-3 px-3", style: { color: th.muted } }, "\u26A0 Minimum 2 agents required for adversarial cross-examination mode."))),
                         section === "web3" && (React.createElement("div", null,
-                            React.createElement("h2", { className: "text-[13px] font-bold mb-1", style: { fontFamily: MONO, color: th.text } }, "Web3 & EAS Preferences"),
+                            React.createElement("h2", { className: "text-[13px] font-bold mb-1", style: { fontFamily: MONO, color: th.text } }, "Web3 & TruthRegistry Preferences"),
                             React.createElement("p", { className: "text-[11px] mb-6", style: { color: th.muted } }, "Configure on-chain attestation and network preferences."),
                             React.createElement(Divider, { label: "NETWORK" }),
                             React.createElement("div", { className: "flex items-center justify-between mb-3" },
                                 React.createElement("div", null,
                                     React.createElement("p", { className: "text-[12px] font-medium", style: { color: th.text } }, "Active Network"),
-                                    React.createElement("p", { className: "text-[10px] mt-0.5", style: { color: th.muted } }, "EAS attestations are written to this chain")),
+                                    React.createElement("p", { className: "text-[10px] mt-0.5", style: { color: th.muted } }, "TruthRegistry attestations are written to this chain")),
                                 React.createElement(Select, { value: network, onChange: setNetwork, options: networkOpts })),
                             React.createElement(Divider, { label: "ATTESTATION" }),
                             React.createElement("div", { className: "flex items-center justify-between py-3 border-b", style: { borderColor: `${th.border}50` } },
                                 React.createElement("div", null,
-                                    React.createElement("p", { className: "text-[12px] font-medium", style: { color: th.text } }, "EAS Schema Version"),
+                                    React.createElement("p", { className: "text-[12px] font-medium", style: { color: th.text } }, "TruthRegistry Schema Version"),
                                     React.createElement("p", { className: "text-[10px] mt-0.5", style: { color: th.muted } }, "Schema used for on-chain attestation")),
                                 React.createElement(Select, { value: easSchema, onChange: setEasSchema, options: schemaOpts })),
                             React.createElement(ToggleRow, { label: "Auto-Attest TruthRegistry", desc: "Automatically write attestation on-chain after every verification", on: autoMint, onChange: setAutoMint }),
@@ -1138,8 +1138,8 @@ const SettingsModal = (function () {
                             React.createElement("div", { className: "mt-4 p-3 rounded-lg", style: { background: `${th.accent}07`, border: `1px solid ${th.accent}18` } },
                                 React.createElement("p", { className: "text-[10px] font-bold mb-1", style: { fontFamily: MONO, color: th.accent } }, "ESTIMATED GAS COST"),
                                 React.createElement("div", { className: "grid grid-cols-2 gap-x-6 gap-y-1 text-[10px]", style: { fontFamily: MONO } },
-                                    React.createElement("span", { style: { color: th.muted } }, "Base Mainnet"),
-                                    React.createElement("span", { style: { color: th.text } }, "~$0.02 / attestation"),
+                                    React.createElement("span", { style: { color: th.muted } }, "Arbitrum Sepolia"),
+                                    React.createElement("span", { style: { color: th.text } }, "~$0.001 / attestation"),
                                     React.createElement("span", { style: { color: th.muted } }, "Arbitrum One"),
                                     React.createElement("span", { style: { color: th.text } }, "~$0.001 / attestation"),
                                     React.createElement("span", { style: { color: th.muted } }, "Sepolia (test)"),
@@ -1297,7 +1297,7 @@ function ProtocolModal({ onClose }) {
         { step: "01", title: "Claim Submission", body: "A user submits a text claim or URL. The GONKA Router parses intent, strips noise, and produces a canonical claim string that all models receive identically." },
         { step: "02", title: "Adversarial Cross-Examination", body: "Three independent AI models (DeepSeek R1, Kimi, MiniMax) simultaneously analyse the claim using different reasoning strategies  -  logical decomposition, source-chain tracing, and adversarial probing." },
         { step: "03", title: "Consensus Formation", body: "The Router aggregates model verdicts using a weighted confidence algorithm. Disagreement between models triggers deeper scrutiny and lowers the final confidence score." },
-        { step: "04", title: "On-Chain Attestation", body: "The final verdict, claim hash, and evidence CID are submitted to the EAS (Ethereum Attestation Service) on Base Mainnet. The resulting UID is the permanent, verifiable proof of the fact-check." },
+        { step: "04", title: "On-Chain Attestation", body: "The final verdict, claim hash, and evidence CID are submitted to the TruthRegistry contract on Arbitrum Sepolia. The resulting transaction is the permanent, verifiable proof of the fact-check." },
     ];
     const tokenRows = [
         { label: "Query Fee", value: "12.5 GONKA / claim" },
@@ -1336,20 +1336,20 @@ function DocsModal({ onClose }) {
     const tabs = [
         { id: "quickstart", label: "QUICK START" },
         { id: "api", label: "REST API" },
-        { id: "schema", label: "EAS SCHEMA" },
+        { id: "schema", label: "TRUTHREGISTRY SCHEMA" },
     ];
     const quickstart = [
         { title: "1. Install SDK", code: `npm install @gonka/sdk` },
         { title: "2. Initialise client", code: `import { GonkaClient } from '@gonka/sdk'\nconst client = new GonkaClient({ apiKey: process.env.GONKA_KEY })` },
         { title: "3. Submit a claim", code: `const result = await client.verify({\n  claim: "Scientists confirm 3.15x net energy gain at NIF",\n  attestOnChain: true\n})` },
-        { title: "4. Read the result", code: `console.log(result.score)    // 87\nconsole.log(result.verdict)  // "TRUE"\nconsole.log(result.easUID)   // "0x7b2c..."` },
+        { title: "4. Read the result", code: `console.log(result.score)\nconsole.log(result.verdict)  // "TRUE"\nconsole.log(result.attestation.claimHash)` },
     ];
     const endpoints = [
         { method: "POST", path: "/v1/verify", desc: "Submit a claim for verification" },
-        { method: "GET", path: "/v1/claim/:uid", desc: "Fetch a verified claim by EAS UID" },
+        { method: "GET", path: "/v1/claim/:hash", desc: "Fetch a verified claim by TruthRegistry claim hash" },
         { method: "GET", path: "/v1/stats", desc: "Protocol-wide verification statistics" },
         { method: "POST", path: "/v1/batch", desc: "Batch verify up to 50 claims" },
-        { method: "GET", path: "/v1/schema", desc: "Retrieve active EAS schema definition" },
+        { method: "GET", path: "/v1/schema", desc: "Retrieve the TruthRegistry attestation schema" },
     ];
     const schemaFields = [
         { name: "claimHash", type: "bytes32", desc: "Keccak-256 of the canonical claim string" },
@@ -1385,9 +1385,9 @@ function DocsModal({ onClose }) {
                     React.createElement("span", { className: "text-[10px]", style: { color: th.muted } }, e.desc)))))),
                 tab === "schema" && (React.createElement(React.Fragment, null,
                     React.createElement("p", { className: "text-[10px] leading-relaxed", style: { color: th.muted } },
-                        "EAS Schema UID: ",
-                        React.createElement("span", { style: { color: th.accent, fontFamily: MONO } }, "0x4f9a\u20262d8e"),
-                        " \u00B7 Deployed on Base Mainnet \u00B7 Resolver: GonkaRouter"),
+                        "TruthRegistry contract: ",
+                        React.createElement("span", { style: { color: th.accent, fontFamily: MONO } }, WEB3_CONFIG.truthRegistryAddress),
+                        " \u00B7 Deployed on " + WEB3_CONFIG.chainName),
                     React.createElement("div", { className: "rounded-xl overflow-hidden", style: { border: `1px solid ${th.border}` } }, schemaFields.map((f, i) => (React.createElement("div", { key: f.name, className: "flex items-start gap-3 px-4 py-2.5 border-b last:border-0", style: { borderColor: th.border, background: i % 2 === 0 ? "transparent" : `${th.border}18` } },
                         React.createElement("span", { className: "text-[10px] w-28 shrink-0 font-bold", style: { fontFamily: MONO, color: th.accent } }, f.name),
                         React.createElement("span", { className: "text-[9px] w-16 shrink-0", style: { fontFamily: MONO, color: th.warn } }, f.type),
@@ -1509,6 +1509,7 @@ function Header() {
     const { page, setPage } = useNav();
     const [walletPhase, setWalletPhase] = useState("idle");
     const [walletAddr, setWalletAddr] = useState("");
+    const [walletError, setWalletError] = useState(null);
     const [navModal, setNavModal] = useState(null);
     useEffect(() => {
         if (!window.ethereum || walletPhase !== "connected")
@@ -1563,12 +1564,11 @@ function Header() {
                 ].map(({ label, action }) => (React.createElement("button", { key: label, onClick: action, className: "nav-link text-[11px] tracking-widest opacity-70", style: { fontFamily: MONO, color: th.text, background: "none", border: "none", cursor: "pointer", padding: 0 } }, label)))),
                 React.createElement("div", { className: "flex items-center gap-3" },
                     React.createElement("button", { onClick: () => setDark(!isDark), className: "w-9 h-9 flex items-center justify-center rounded-lg transition-all", style: { border: `1px solid ${th.border}`, background: "transparent" } }, isDark ? React.createElement(IconSun, { c: th.muted }) : React.createElement(IconMoon, { c: th.muted })),
-                    walletPhase === "connected" ? (React.createElement(UserModule, { address: walletAddr, onDisconnect: () => { setWalletPhase("idle"); setWalletAddr(""); setAddress(""); setPage("home"); } })) : (React.createElement("button", { onClick: () => setWalletPhase("modal"), className: "text-[11px] px-4 py-2 tracking-widest border transition-colors", style: { fontFamily: MONO, borderColor: th.accent, color: th.accent, background: "transparent" }, onMouseEnter: e => { e.currentTarget.style.background = `${th.accent}12`; }, onMouseLeave: e => { e.currentTarget.style.background = "transparent"; } }, "CONNECT WALLET")))),
+                    walletPhase === "connected" ? (React.createElement(UserModule, { address: walletAddr, onDisconnect: () => { setWalletPhase("idle"); setWalletAddr(""); setAddress(""); setWalletError(null); setPage("home"); } })) : (React.createElement("div", { className: "flex flex-col items-end gap-1" }, React.createElement("button", { onClick: () => { setWalletError(null); handleConnect().catch(err => setWalletError(err && err.message ? err.message : "Wallet connection failed.")); }, className: "text-[11px] px-4 py-2 tracking-widest border transition-colors", style: { fontFamily: MONO, borderColor: th.accent, color: th.accent, background: "transparent" }, onMouseEnter: e => { e.currentTarget.style.background = `${th.accent}12`; }, onMouseLeave: e => { e.currentTarget.style.background = "transparent"; } }, "CONNECT WALLET"), walletError && React.createElement("span", { className: "max-w-[240px] text-right text-[9px] leading-relaxed", style: { color: th.err, fontFamily: MONO } }, walletError))))),
             React.createElement("div", { className: "border-t overflow-hidden py-1.5", style: { borderColor: th.border, background: `${th.accent}05` } },
                 React.createElement("div", { className: "flex whitespace-nowrap ticker-track", style: { width: "200%" } }, [1, 2].map(rep => (React.createElement("div", { key: rep, className: "flex gap-10 px-6 text-[10px]", style: { fontFamily: MONO } }, TICKER_ITEMS.map(t => (React.createElement("span", { key: t.label, style: { color: t.ok ? th.success : th.muted } },
                     "\u25C6 ",
                     t.label))))))))),
-        walletPhase === "modal" && (React.createElement(WalletModal, { onClose: () => setWalletPhase("idle"), onConnect: handleConnect })),
         navModal === "protocol" && React.createElement(ProtocolModal, { onClose: () => setNavModal(null) }),
         navModal === "docs" && React.createElement(DocsModal, { onClose: () => setNavModal(null) })));
 }
@@ -1766,9 +1766,9 @@ const ECOSYSTEMS = [
     {
         name: "IPFS", abbr: "", sub: "STORAGE", color: "#65A9DA",
         desc: "Content-addressed decentralised storage for claim evidence bundles.",
-        details: "Every verification run produces an evidence bundle  -  raw AI responses, source URLs and metadata  -  pinned to IPFS via Web3.Storage. The resulting CID is embedded in the EAS attestation, giving anyone a tamper-proof path from on-chain record back to the full evidence set without trusting a centralised server.",
-        stats: [{ l: "PROTOCOL", v: "IPFS / Filecoin" }, { l: "PIN SERVICE", v: "Web3.Storage" }, { l: "AVG SIZE", v: "~14 KB" }, { l: "RETRIEVAL", v: "<500 ms" }],
-        features: ["Content-addressed bundles", "Filecoin persistence", "CID embedded in EAS", "Decentralised retrieval"],
+        details: "Every verification run produces an evidence bundle - raw AI responses, source URLs and metadata - pinned to IPFS via Pinata. The resulting CID is embedded in the TruthRegistry attestation, giving anyone a tamper-proof path from on-chain record back to the full evidence set without trusting a centralised server.",
+        stats: [{ l: "PROTOCOL", v: "IPFS" }, { l: "PIN SERVICE", v: "Pinata" }, { l: "AVG SIZE", v: "~14 KB" }, { l: "RETRIEVAL", v: "<500 ms" }],
+        features: ["Content-addressed bundles", "Pinata pinning", "CID embedded in TruthRegistry", "Decentralised retrieval"],
     },
     {
         name: "Arbitrum", abbr: "", sub: "L2 NETWORK", color: "#28A0F0",
@@ -1963,13 +1963,13 @@ const MM = [
     { t: "verdict", s: "VERDICT: VERIFIED               [0.921]" },
 ];
 // 
-// EAS CERT DATA
+// TRUTHREGISTRY CERT DATA
 // 
 const CERT_ROWS = [
     { k: "UID", v: "pending" },
-    { k: "Schema", v: "#gonka-fact-v1" },
+    { k: "Schema", v: WEB3_CONFIG.schemaId },
     { k: "Attester", v: "Wallet not connected" },
-    { k: "Network", v: "Base Mainnet" },
+    { k: "Network", v: WEB3_CONFIG.chainName },
     { k: "Timestamp", v: "waiting for verification" },
     { k: "Evidence", v: "not generated" },
 ];
@@ -2030,15 +2030,15 @@ function buildTerminalData(verification, phase) {
         return { ...item, version: match ? shortHash(match.model, 22, 8) : item.version, lines: linesFromModel(match) };
     });
 }
-function attestationRows(verification) {
+function attestationRows(verification, walletAddress) {
     if (!verification)
         return CERT_ROWS;
     const att = verification.attestation || {};
     return [
         { k: "UID", v: att.uid || "pending" },
-        { k: "Schema", v: att.schema || "#gonka-fact-v1" },
-        { k: "Attester", v: "Wallet not connected" },
-        { k: "Network", v: att.network || "Base Mainnet" },
+        { k: "Schema", v: att.schema || WEB3_CONFIG.schemaId },
+        { k: "Attester", v: walletAddress || "Wallet not connected" },
+        { k: "Network", v: att.network || WEB3_CONFIG.chainName },
         { k: "Timestamp", v: verification.createdAt ? new Date(verification.createdAt).toLocaleString() : "generated" },
         { k: "Evidence", v: shortHash(att.evidenceHash, 10, 8) },
         { k: "Gonka Proof IDs", v: (Array.isArray(att.gonkaRequestIds) && att.gonkaRequestIds.length) ? att.gonkaRequestIds.map(rid => shortHash(rid, 8, 6)).join("  -  ") : "3-model evidence" },
@@ -2292,7 +2292,10 @@ function HomePage() {
     const sources = verification ? (verification.references || []) : [];
     const terminalData = buildTerminalData(verification, phase);
     const verdictInfo = verdictDisplay(verification?.verdict);
-    const certRows = attestationRows(verification);
+    const { address: walletAddress } = useWallet();
+    const certRows = attestationRows(verification, walletAddress);
+    const attestation = verification?.attestation || {};
+    const canAttest = Boolean(walletAddress && verification && verification.verdict !== "unverified" && attestation.status === "ready_to_mint");
     return (React.createElement(React.Fragment, null,
         React.createElement("section", { className: "relative pt-20 pb-16 px-6 overflow-hidden" },
             React.createElement(NetworkBg, null),
@@ -2304,7 +2307,7 @@ function HomePage() {
                         React.createElement("span", { className: "hero-title-anim", style: { color: th.text } }, "AI Adversarial"),
                         React.createElement("br", null),
                         React.createElement("span", { className: "hero-title-accent" }, "Fact Verification")),
-                    React.createElement("p", { className: "text-sm max-w-xl mx-auto leading-relaxed", style: { color: th.muted } }, "Multiple AI models cross-examine claims simultaneously. Results anchored on-chain via EAS for permanent, cryptographically verifiable truth records.")),
+                    React.createElement("p", { className: "text-sm max-w-xl mx-auto leading-relaxed", style: { color: th.muted } }, "Multiple AI models cross-examine claims simultaneously. Results anchored on-chain via TruthRegistry for permanent, cryptographically verifiable truth records.")),
                 React.createElement("div", { className: "relative mb-16", style: { perspective: "1100px", perspectiveOrigin: "50% 5%" } },
                     React.createElement("div", { className: "relative mx-auto max-w-3xl", style: { transform: "rotateX(48deg) scale(0.92)", transformOrigin: "center top", transformStyle: "preserve-3d" } },
                         React.createElement("div", { className: "absolute inset-0 rounded-2xl", style: {
@@ -2407,7 +2410,7 @@ function HomePage() {
                                                 React.createElement("span", { className: "text-[10px] tracking-wider", style: { fontFamily: MONO, color: th.accent } }, "TRUTHREGISTRY ATTESTATION")),
                                             React.createElement("div", { className: "flex items-center gap-1.5" },
                                                 React.createElement("div", { className: "w-1.5 h-1.5 rounded-full", style: { background: th.success, boxShadow: `0 0 6px ${th.success}` } }),
-                                                React.createElement("span", { className: "text-[9px]", style: { fontFamily: MONO, color: verification && verification.verdict !== "unverified" ? th.success : th.muted } }, verification && verification.verdict !== "unverified" ? "READY TO ATTEST" : "NOT ATTESTED"))),
+                                                React.createElement("span", { className: "text-[9px]", style: { fontFamily: MONO, color: canAttest ? th.success : th.muted } }, canAttest ? "READY TO ATTEST" : "NOT ATTESTED"))),
                                         certRows.map(r => (React.createElement("div", { key: r.k, className: "flex items-center justify-between py-1.5 border-b", style: { borderColor: `${th.border}40` } },
                                             React.createElement("span", { className: "text-[9px]", style: { fontFamily: MONO, color: th.muted } }, r.k),
                                             React.createElement("span", { className: "text-[9px]", style: { fontFamily: MONO, color: th.text } }, r.v)))),
@@ -2420,8 +2423,8 @@ function HomePage() {
                                         React.createElement("div", null,
                                             React.createElement("p", { className: "text-[10px] font-bold tracking-wider", style: { fontFamily: MONO, color: th.success } }, `VERDICT: ${verification ? verdictInfo.label : "DEMO"}`),
                                             React.createElement("p", { className: "text-[9px]", style: { color: th.muted } }, verification ? `Score: ${verification.truthScore || 0}/100  -  Confidence: ${verification.confidence || 0}%` : "Run verification to populate live result"))),
-                                    React.createElement("button", { onClick: () => verification && verification.verdict !== "unverified" && setMinted(true), disabled: !verification || verification.verdict === "unverified", className: "mint-btn w-full py-3.5 text-[11px] font-bold tracking-[0.2em] rounded-lg relative z-20", style: { fontFamily: MONO, color: th.accentFg, opacity: verification && verification.verdict !== "unverified" ? 1 : 0.45, cursor: verification && verification.verdict !== "unverified" ? "pointer" : "not-allowed" } }, minted ? " TRUTHREGISTRY READY" : verification?.verdict === "unverified" ? "ATTESTATION BLOCKED  UNVERIFIED" : "PREPARE TRUTHREGISTRY ATTESTATION"),
-                                    minted && (React.createElement("p", { className: "text-center text-[10px] mt-2", style: { fontFamily: MONO, color: th.success } }, `tx: ${shortHash(verification?.attestation?.evidenceHash, 8, 6)}  -  Base Mainnet`))))))),
+                                    React.createElement("button", { onClick: () => canAttest && setMinted(true), disabled: !canAttest, className: "mint-btn w-full py-3.5 text-[11px] font-bold tracking-[0.2em] rounded-lg relative z-20", style: { fontFamily: MONO, color: th.accentFg, opacity: canAttest ? 1 : 0.45, cursor: canAttest ? "pointer" : "not-allowed" } }, minted ? "TRUTHREGISTRY READY" : !walletAddress ? "CONNECT WALLET TO ATTEST" : !verification ? "RUN VERIFICATION FIRST" : verification.verdict === "unverified" ? "ATTESTATION BLOCKED - UNVERIFIED" : "PREPARE TRUTHREGISTRY ATTESTATION"),
+                                    minted && (React.createElement("p", { className: "text-center text-[10px] mt-2", style: { fontFamily: MONO, color: th.success } }, `tx: ${shortHash(verification?.attestation?.evidenceHash, 8, 6)} - ${WEB3_CONFIG.chainName}`))))))),
                 verification && sources.length > 0 && React.createElement(VerificationSources, { sources: sources }))),
         React.createElement("footer", { className: "border-t px-6 py-7", style: { borderColor: th.border } },
             React.createElement("div", { className: "max-w-7xl mx-auto flex flex-wrap gap-4 items-center justify-between" },

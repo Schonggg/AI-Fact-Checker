@@ -5,3 +5,5 @@ CHAIN_ID = 421614
 CHAIN_ID_HEX = "0x66eee"
 EXPLORER_URL = "https://sepolia.arbiscan.io"
 ATTESTATION_PROTOCOL = "TruthRegistry"
+SCHEMA_ID = "#gonka-fact-v1"
+MIN_GONKA_PROOF_IDS = 3

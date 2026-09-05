@@ -23,7 +23,7 @@ BACKEND_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "bac
 if BACKEND_DIR not in sys.path:
     sys.path.insert(0, BACKEND_DIR)
 
-from app.core.web3_config import ATTESTATION_PROTOCOL, CHAIN_NAME
+from app.core.web3_config import ATTESTATION_PROTOCOL, CHAIN_NAME, MIN_GONKA_PROOF_IDS, SCHEMA_ID
 from app.services.claim_parser import contract_verdict, generate_claim_hash
 
 # Configure logging to stderr (Vercel serverless captures stderr in function logs).
@@ -689,7 +689,7 @@ def _aggregate(claim, article, results, started_at):
             "summary": "No Gonka model returned a valid structured response. Review the model errors and API configuration.",
             "metrics": {"factualAccuracy": 50, "sourceQuality": 0, "logicalConsistency": 50, "biasNeutrality": 50, "temporalConsistency": 50, "consensus": 0},
             "models": results, "references": [], "riskFlags": ["all_models_failed"],
-            "attestation": {"claimHash": claim_hash, "evidenceHash": evidence_hash, "schema": "#gonka-fact-v1", "network": CHAIN_NAME, "protocol": ATTESTATION_PROTOCOL, "uid": "pending", "status": "blocked", "metadataURI": "", "reason": "unverified_results_cannot_be_attested"},
+            "attestation": {"claimHash": claim_hash, "evidenceHash": evidence_hash, "schema": SCHEMA_ID, "network": CHAIN_NAME, "protocol": ATTESTATION_PROTOCOL, "uid": "pending", "status": "blocked", "metadataURI": "", "reason": "unverified_results_cannot_be_attested"},
             "createdAt": datetime.now(timezone.utc).isoformat(),
             "latencyMs": round((time.perf_counter() - started_at) * 1000),
         }
@@ -740,6 +740,8 @@ def _aggregate(claim, article, results, started_at):
     summaries = [f"{item['provider']}: {item['summary']}" for item in successful if item.get("summary")]
     # 收集所有成功模型的 Gonka Request IDs（供合约存证）
     gonka_request_ids = [item.get("request_id", "") for item in successful if item.get("request_id")]
+    attestation_status = "ready_to_mint" if len(gonka_request_ids) >= MIN_GONKA_PROOF_IDS else "blocked"
+    attestation_reason = "" if attestation_status == "ready_to_mint" else f"insufficient_gonka_proof_ids: need {MIN_GONKA_PROOF_IDS}, got {len(gonka_request_ids)}"
 
     return {
         "id": f"gnk-{uuid.uuid4().hex[:10]}", "status": "ok" if len(successful) == total else "partial",
@@ -748,7 +750,7 @@ def _aggregate(claim, article, results, started_at):
         "consensus": f"{agreement_count}/{len(successful)} successful models agree; {len(successful)}/{total} models responded",
         "summary": " ".join(summaries), "metrics": metrics, "models": results,
         "references": references[:20], "riskFlags": risk_flags[:20],
-        "attestation": {"claimHash": claim_hash, "evidenceHash": evidence_hash, "schema": "#gonka-fact-v1", "network": CHAIN_NAME, "protocol": ATTESTATION_PROTOCOL, "uid": "pending", "status": "ready_to_mint",
+        "attestation": {"claimHash": claim_hash, "evidenceHash": evidence_hash, "schema": SCHEMA_ID, "network": CHAIN_NAME, "protocol": ATTESTATION_PROTOCOL, "uid": "pending", "status": attestation_status, "reason": attestation_reason,
                         "gonkaRequestIds": gonka_request_ids,  # 🌟 核心加分项
                         "timestamp": datetime.now(timezone.utc).isoformat()},
         "createdAt": datetime.now(timezone.utc).isoformat(),
