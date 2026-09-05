@@ -1572,8 +1572,19 @@ function Header() {
         if (!address)
             throw new Error("The wallet did not return an account.");
         const chainId = await window.ethereum.request({ method: "eth_chainId" });
-        if (String(chainId).toLowerCase() !== WEB3_CONFIG.chainIdHex)
-            throw new Error("Switch your wallet to Arbitrum Sepolia before continuing.");
+        if (String(chainId).toLowerCase() !== WEB3_CONFIG.chainIdHex) {
+            try {
+                await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: WEB3_CONFIG.chainIdHex }] });
+            }
+            catch (switchError) {
+                if (switchError && switchError.code === 4902) {
+                    await window.ethereum.request({ method: "wallet_addEthereumChain", params: [{ chainId: WEB3_CONFIG.chainIdHex, chainName: WEB3_CONFIG.chainName, nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: ["https://sepolia-rollup.arbitrum.io/rpc"], blockExplorerUrls: [WEB3_CONFIG.explorerUrl] }] });
+                }
+                else {
+                    throw new Error("Please approve switching your wallet to Arbitrum Sepolia.");
+                }
+            }
+        }
         setWalletAddr(address);
         setAddress(address);
         setWalletPhase("connected");
