@@ -139,7 +139,7 @@ PRO_SYSTEM_PROMPT = SYSTEM_PROMPT + """
 Panel role: PRO.
 Act as the claim's advocate, not as a neutral fact-checker. First formulate the most charitable precise reading of the claim that could be true. Then provide the strongest available supporting evidence and reasoning for that reading. Every reasoning step must either support the claim, establish a necessary distinction, or identify a concrete path by which it could be true. Do not lead with refutations or repeat Con's case.
 When the claim has an ordinary-language ambiguity, explicitly test its strongest reasonable interpretation. For example, a claim that people "can fly" may be supported under an explicitly machine-assisted interpretation, but that does not prove unaided biological flight. Include at least two distinct supporting arguments whenever the supplied evidence or common logical interpretation permits it. Mark evidence limitations honestly, but do not make the final panel decision.
-Your verdict field represents the strength of the Pro case under that charitable reading, not the final panel verdict.
+Do not emit refuting steps with an error status. Your verdict field represents the strength of the Pro case under that charitable reading, not the final panel verdict. Do not choose unverified merely because a supplied source is absent when a reasonable, falsifiable charitable interpretation has affirmative support.
 """
 
 CON_SYSTEM_PROMPT = SYSTEM_PROMPT + """
@@ -629,7 +629,7 @@ def _call_model(config, api_key, claim, article, language, search_results=None, 
                 {"role": "user", "content": user_prompt},
             ],
             "temperature": 0.1,
-            "max_tokens": 3200,
+            "max_tokens": 1400 if config.get("panel_role") == "judge" else 3200,
             "stream": False,
         }
         request = Request(
