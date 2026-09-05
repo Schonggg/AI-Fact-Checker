@@ -271,7 +271,7 @@ const WEB3_CONFIG = Object.freeze({ chainId: 421614, chainIdHex: "0x66eee", chai
 const DEFAULT_GONKA_SETTINGS = {
     consensus: "balanced",
     agents: { kimi: true, deepseek: true, minimax: true },
-    network: "base",
+    network: "arbitrum-sepolia",
     autoMint: false,
     ipfsPin: false,
     easSchema: "v1",
@@ -292,7 +292,9 @@ const VERIFY_LOADING_STAGES = [
 function loadGonkaSettings() {
     try {
         const saved = JSON.parse(localStorage.getItem("gonka.settings") || "null");
-        return saved ? { ...DEFAULT_GONKA_SETTINGS, ...saved, agents: { ...DEFAULT_GONKA_SETTINGS.agents, ...(saved.agents || {}) }, notifications: { ...DEFAULT_GONKA_SETTINGS.notifications, ...(saved.notifications || {}) } } : DEFAULT_GONKA_SETTINGS;
+        if (!saved)
+            return DEFAULT_GONKA_SETTINGS;
+        return { ...DEFAULT_GONKA_SETTINGS, ...saved, network: ["arbitrum-sepolia", "arbitrum", "sepolia"].includes(saved.network) ? saved.network : DEFAULT_GONKA_SETTINGS.network, agents: { ...DEFAULT_GONKA_SETTINGS.agents, ...(saved.agents || {}) }, notifications: { ...DEFAULT_GONKA_SETTINGS.notifications, ...(saved.notifications || {}) } };
     }
     catch (_) {
         return DEFAULT_GONKA_SETTINGS;
@@ -971,7 +973,7 @@ const SettingsModal = (function () {
     function Select({ value, onChange, options }) {
         const { th } = useTh();
         const [open, setOpen] = useState(false);
-        const cur = options.find(o => o.value === value);
+        const cur = options.find(o => o.value === value) || options[0];
         return (React.createElement("div", { className: "relative w-52" },
             React.createElement("button", { onClick: () => setOpen(v => !v), className: "flex items-center justify-between w-full px-3 py-2 rounded-lg text-[12px] transition-all", style: { background: th.surface2, border: `1px solid ${open ? th.accent : th.border}`, color: th.text, fontFamily: MONO } },
                 React.createElement("span", null, cur.label),
@@ -2489,18 +2491,27 @@ function LiveDashboardPage() {
     const { th } = useTh();
     const [events, setEvents] = useState(null);
     const [error, setError] = useState(null);
+    const [loading, setLoading] = useState(true);
     useEffect(() => {
-        if (!window.ethers)
-            return setError("ethers.js is unavailable");
+        if (!window.ethers) {
+            setError("ethers.js is unavailable");
+            setLoading(false);
+            return;
+        }
         const load = async () => {
             try {
                 const provider = new window.ethers.JsonRpcProvider("https://sepolia-rollup.arbitrum.io/rpc");
                 const contract = new window.ethers.Contract(WEB3_CONFIG.truthRegistryAddress, TRUTH_REGISTRY_READ_ABI, provider);
-                const logs = await contract.queryFilter(contract.filters.TruthAttested(), 0, "latest");
+                const latestBlock = await provider.getBlockNumber();
+                const fromBlock = Math.max(0, latestBlock - 10000);
+                const logs = await contract.queryFilter(contract.filters.TruthAttested(), fromBlock, latestBlock);
                 setEvents(logs.slice(-50).reverse());
             }
             catch (loadError) {
                 setError(loadError && loadError.message ? loadError.message : "Could not read TruthRegistry events.");
+            }
+            finally {
+                setLoading(false);
             }
         };
         load();
@@ -2514,9 +2525,10 @@ function LiveDashboardPage() {
                 React.createElement(MetricCard, { label: "ON-CHAIN ATTESTATIONS", value: events ? String(rows.length) : "", unit: "", sub: "TruthAttested events", accent: th.accent }),
                 React.createElement(MetricCard, { label: "AVERAGE TRUTH SCORE", value: average === null ? "" : String(average), unit: average === null ? "" : "%", sub: "Calculated from live events", accent: th.success }),
                 React.createElement(MetricCard, { label: "NETWORK", value: "421614", unit: "", sub: "Arbitrum Sepolia", accent: th.warn })),
+            loading && React.createElement("div", { className: "rounded-xl p-8 text-center", style: { background: th.card, border: `1px solid ${th.border}`, color: th.muted, fontFamily: MONO } }, "Loading TruthRegistry events..."),
             error && React.createElement("p", { className: "rounded-lg p-4 text-xs", style: { color: th.err, background: `${th.err}10`, border: `1px solid ${th.err}30` } }, error),
-            !error && rows.length === 0 && events && React.createElement("div", { className: "rounded-xl p-8 text-center", style: { background: th.card, border: `1px solid ${th.border}`, color: th.muted, fontFamily: MONO } }, "No TruthRegistry attestations found on-chain."),
-            rows.length > 0 && React.createElement("div", { className: "rounded-xl overflow-hidden", style: { background: th.card, border: `1px solid ${th.border}` } }, rows.map((event, index) => React.createElement("div", { key: `${event.args.claimHash}-${index}`, className: "flex flex-wrap items-center justify-between gap-3 p-4 border-b last:border-0", style: { borderColor: th.border } },
+            !loading && !error && rows.length === 0 && React.createElement("div", { className: "rounded-xl p-8 text-center", style: { background: th.card, border: `1px solid ${th.border}`, color: th.muted, fontFamily: MONO } }, "No TruthRegistry attestations found in the recent Arbitrum Sepolia blocks."),
+            !loading && rows.length > 0 && React.createElement("div", { className: "rounded-xl overflow-hidden", style: { background: th.card, border: `1px solid ${th.border}` } }, rows.map((event, index) => React.createElement("div", { key: `${event.args.claimHash}-${index}`, className: "flex flex-wrap items-center justify-between gap-3 p-4 border-b last:border-0", style: { borderColor: th.border } },
                 React.createElement("div", null, React.createElement("p", { className: "text-xs font-bold", style: { fontFamily: MONO, color: th.text } }, event.args.verdict), React.createElement("p", { className: "text-[10px] mt-1 break-all", style: { fontFamily: MONO, color: th.muted } }, event.args.claimHash)),
                 React.createElement("span", { className: "text-sm font-bold", style: { fontFamily: MONO, color: th.accent } }, `${event.args.truthScore}/100`))))));
 }
