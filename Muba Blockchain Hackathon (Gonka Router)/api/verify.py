@@ -844,19 +844,11 @@ class VerifyRequestHandler(BaseHTTPRequestHandler):
 
         settings = body.get("settings") if isinstance(body.get("settings"), dict) else {}
         enabled = settings.get("agents") if isinstance(settings.get("agents"), dict) else {}
-        configs = [config for config in MODEL_CONFIGS if enabled.get(config["provider"].lower(), True)]
-        unavailable_models = [config["model"] for config in configs if config["model"] not in available_models]
-        if unavailable_models:
-            _json_response(self, 502, {
-                "status": "error",
-                "error": "Configured model IDs are not available from the Gonka broker. Update the GONKA_*_MODEL values to match GET /models.",
-                "unavailableModels": unavailable_models,
-                "availableModels": sorted(available_models),
-                "baseUrl": GONKA_BASE_URL,
-            })
-            return
+        requested_configs = [config for config in MODEL_CONFIGS if enabled.get(config["provider"].lower(), True)]
+        configs = [config for config in requested_configs if config["model"] in available_models]
+        unavailable_models = [config["model"] for config in requested_configs if config["model"] not in available_models]
         if len(configs) < 2:
-            _json_response(self, 400, {"status": "error", "error": "Enable at least two AI agents for adversarial verification."})
+            _json_response(self, 503, {"status": "error", "error": "Fewer than two configured models are currently available from Gonka.", "unavailableModels": unavailable_models, "availableModels": sorted(available_models), "baseUrl": GONKA_BASE_URL})
             return
         language = str(settings.get("language") or "en")[:20]
 
@@ -907,6 +899,8 @@ class VerifyRequestHandler(BaseHTTPRequestHandler):
         order = {config["provider"]: i for i, config in enumerate(MODEL_CONFIGS)}
         results.sort(key=lambda item: order.get(item.get("provider"), 99))
         response = _aggregate(claim, article, results, started_at)
+        if unavailable_models:
+            response.setdefault("riskFlags", []).append("unavailable_models:" + ",".join(unavailable_models))
         if response.get("verdict") == "unverified":
             response["attestation"].update({"status": "blocked", "reason": "unverified_results_cannot_be_attested"})
         else:
