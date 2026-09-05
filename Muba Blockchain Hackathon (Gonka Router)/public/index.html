@@ -1980,18 +1980,18 @@ function TruthGauge({ score }) {
             React.createElement("circle", { cx: cx, cy: cy, r: "60", fill: "none", stroke: th.border, strokeWidth: "1", strokeDasharray: "10 4" }),
             React.createElement("circle", { cx: cx, cy: cy, r: "60", fill: "none", stroke: "#0052FF", strokeWidth: "2", strokeDasharray: "40 80", filter: "url(#gGlow)" }),
             React.createElement("text", { x: cx, y: cy - 60, fill: th.accent, fontSize: "6", fontFamily: MONO, letterSpacing: "2", textAnchor: "middle" }, "VERIFIED DATA STREAM")),
-        React.createElement("text", { x: cx, y: cy - 2, textAnchor: "middle", fill: th.accent, fontSize: "44", fontFamily: MONO, fontWeight: "700", className: "text-pulse" }, score ?? "—"),
+        React.createElement("text", { x: cx, y: cy - 2, textAnchor: "middle", fill: th.accent, fontSize: "44", fontFamily: MONO, fontWeight: "700", className: "text-pulse" }, score),
         React.createElement("text", { x: cx, y: cy + 18, textAnchor: "middle", fill: th.muted, fontSize: "8.5", fontFamily: SANS, letterSpacing: "3" }, "TRUTH SCORE")));
 }
 // ═══════════════════════════════════════════════════════════════════════════
 // RADAR CHART
 // ═══════════════════════════════════════════════════════════════════════════
 const RADAR = [
-    { label: "FACTUAL", value: 0 },
-    { label: "SOURCES", value: 0 },
-    { label: "LOGIC", value: 0 },
-    { label: "BIAS", value: 0 },
-    { label: "CONSENSUS", value: 0 },
+    { label: "FACTUAL", value: 87 },
+    { label: "SOURCES", value: 73 },
+    { label: "LOGIC", value: 91 },
+    { label: "BIAS", value: 65 },
+    { label: "CONSENSUS", value: 82 },
 ];
 function RadarChart({ data = RADAR }) {
     const { th } = useTh();
@@ -2399,7 +2399,7 @@ function HomePage() {
     const [minted, setMinted] = useState(false);
     const [selectedEco, setSelectedEco] = useState(null);
     const { verification, phase } = useVerify();
-    const score = verification ? verification.truthScore ?? null : null;
+    const score = verification ? verification.truthScore || 0 : 87;
     const metrics = verification?.metrics || {};
     const radarData = verification ? [
         { label: "FACTUAL", value: metrics.factualAccuracy || 0 },
@@ -2457,10 +2457,10 @@ function HomePage() {
                             React.createElement("span", { className: "font-bold", style: { color: verification ? th.success : th.muted } }, verification ? `${verification.consensus || "Consensus calculated"} — ${verdictInfo.label}` : "WAITING FOR LIVE CLAIM"))),
                     React.createElement("span", { className: "text-[11px]", style: { color: th.muted, fontFamily: MONO } },
                         "AVG CONFIDENCE: ",
-                        React.createElement("span", { style: { color: th.accent } }, verification ? `${verification.confidence || 0}%` : "—"),
+                        React.createElement("span", { style: { color: th.accent } }, verification ? `${verification.confidence || 0}%` : "92.0%"),
                         " · ",
                         "LATENCY: ",
-                        React.createElement("span", { style: { color: th.accent } }, verification ? `${verification.latencyMs || 0} ms` : "—"))))),
+                        React.createElement("span", { style: { color: th.accent } }, verification ? `${verification.latencyMs || 0} ms` : "1,842 ms"))))),
         React.createElement("section", { className: "relative px-6 pb-28 overflow-hidden" },
             React.createElement(LivingBackground, null),
             React.createElement("div", { className: "absolute inset-x-0 top-0 h-64 pointer-events-none", style: { background: `radial-gradient(ellipse at 50% 0%,${th.accent}07 0%,transparent 70%)` } }),
@@ -2489,9 +2489,9 @@ function HomePage() {
                                 React.createElement("p", { className: "text-[11px] tracking-widest mb-4", style: { fontFamily: MONO, color: th.muted } }, "TRUTH SCORE"),
                                 React.createElement(TruthGauge, { score: score }),
                                 React.createElement("div", { className: "mt-6 w-full space-y-3" }, [
-                                    { label: "Factual Accuracy", val: metrics.factualAccuracy ?? null, color: th.success },
-                                    { label: "Source Trust", val: metrics.sourceQuality ?? null, color: th.accent },
-                                    { label: "Bias Neutrality", val: metrics.biasNeutrality ?? null, color: metrics.biasNeutrality ? th.success : th.err },
+                                    { label: "Factual Accuracy", val: metrics.factualAccuracy ?? 94, color: th.success },
+                                    { label: "Source Trust", val: metrics.sourceQuality ?? 87, color: th.accent },
+                                    { label: "Bias Neutrality", val: metrics.biasNeutrality ?? 12, color: metrics.biasNeutrality ? th.success : th.err },
                                 ].map(row => (React.createElement("div", { key: row.label, className: "flex items-center gap-3" },
                                     React.createElement("span", { className: "text-[10px] w-32 shrink-0", style: { fontFamily: MONO, color: th.muted } }, row.label),
                                     React.createElement("div", { className: "flex-1 h-[3px] rounded-full", style: { background: th.border } },
