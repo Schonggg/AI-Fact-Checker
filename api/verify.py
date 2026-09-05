@@ -19,6 +19,13 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
+BACKEND_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "backend"))
+if BACKEND_DIR not in sys.path:
+    sys.path.insert(0, BACKEND_DIR)
+
+from app.core.web3_config import ATTESTATION_PROTOCOL, CHAIN_NAME
+from app.services.claim_parser import contract_verdict, generate_claim_hash
+
 # Configure logging to stderr (Vercel serverless captures stderr in function logs).
 logging.basicConfig(
     stream=sys.stderr,
@@ -54,6 +61,7 @@ KIMI_TIMEOUT_SECONDS = int(os.environ.get("GONKA_KIMI_MODEL_TIMEOUT", "30"))
 MAX_TOTAL_BUDGET_SECONDS = int(os.environ.get("GONKA_TOTAL_BUDGET_SECONDS", "50"))
 # 降级兜底模型
 FALLBACK_MODEL = os.environ.get("GONKA_FALLBACK_MODEL", "deepseek-ai/DeepSeek-V4-Flash-0731")
+PINATA_TIMEOUT_SECONDS = int(os.environ.get("PINATA_TIMEOUT", "8"))
 def _normalize_gonka_base_url(value):
     """Return the OpenAI-compatible Gonka broker base URL ending in /v1."""
     url = str(value or "https://api.gonkarouter.io/v1").strip().rstrip("/")
@@ -662,7 +670,7 @@ def _call_model(config, api_key, claim, article, language, search_results=None):
 
 
 def _aggregate(claim, article, results, started_at):
-    claim_hash = "0x" + hashlib.sha256(claim.encode("utf-8")).hexdigest()
+    claim_hash = generate_claim_hash(claim)
     evidence_seed = json.dumps({"claim": claim, "article": article, "models": [item.get("model") for item in results]}, ensure_ascii=False, sort_keys=True)
     evidence_hash = "0x" + hashlib.sha256(evidence_seed.encode("utf-8")).hexdigest()
     successful = [item for item in results if item.get("status") == "ok"]
@@ -683,7 +691,7 @@ def _aggregate(claim, article, results, started_at):
             "summary": "No Gonka model returned a valid structured response. Review the model errors and API configuration.",
             "metrics": {"factualAccuracy": 50, "sourceQuality": 0, "logicalConsistency": 50, "biasNeutrality": 50, "temporalConsistency": 50, "consensus": 0},
             "models": results, "references": [], "riskFlags": ["all_models_failed"],
-            "attestation": {"claimHash": claim_hash, "evidenceHash": evidence_hash, "schema": "#gonka-fact-v1", "network": "Base Mainnet", "uid": "pending", "status": "ready_to_mint"},
+            "attestation": {"claimHash": claim_hash, "evidenceHash": evidence_hash, "schema": "#gonka-fact-v1", "network": CHAIN_NAME, "protocol": ATTESTATION_PROTOCOL, "uid": "pending", "status": "blocked", "metadataURI": "", "reason": "unverified_results_cannot_be_attested"},
             "createdAt": datetime.now(timezone.utc).isoformat(),
             "latencyMs": round((time.perf_counter() - started_at) * 1000),
         }
@@ -742,12 +750,38 @@ def _aggregate(claim, article, results, started_at):
         "consensus": f"{agreement_count}/{len(successful)} successful models agree; {len(successful)}/{total} models responded",
         "summary": " ".join(summaries), "metrics": metrics, "models": results,
         "references": references[:20], "riskFlags": risk_flags[:20],
-        "attestation": {"claimHash": claim_hash, "evidenceHash": evidence_hash, "schema": "#gonka-fact-v1", "network": "Base Sepolia", "uid": "pending", "status": "ready_to_mint",
+        "attestation": {"claimHash": claim_hash, "evidenceHash": evidence_hash, "schema": "#gonka-fact-v1", "network": CHAIN_NAME, "protocol": ATTESTATION_PROTOCOL, "uid": "pending", "status": "ready_to_mint",
                         "gonkaRequestIds": gonka_request_ids,  # 🌟 核心加分项
                         "timestamp": datetime.now(timezone.utc).isoformat()},
         "createdAt": datetime.now(timezone.utc).isoformat(),
         "latencyMs": round((time.perf_counter() - started_at) * 1000),
     }
+
+
+def _pin_verification(response):
+    """Pin the report server-side; never expose the Pinata JWT to the browser."""
+    token = os.environ.get("PINATA_JWT", "").strip()
+    if not token:
+        response.setdefault("riskFlags", []).append("pinata_not_configured")
+        response["attestation"].update({"metadataURI": "", "status": "blocked", "reason": "PINATA_JWT is not configured"})
+        return
+    payload = {"pinataContent": response, "pinataMetadata": {"name": f"gonka-{response.get('id', 'verification')}"}}
+    request = Request(
+        "https://api.pinata.cloud/pinning/pinJSONToIPFS",
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=PINATA_TIMEOUT_SECONDS) as pinata_response:
+            pinata_result = json.loads(pinata_response.read().decode("utf-8"))
+        cid = str(pinata_result.get("IpfsHash") or "").strip()
+        if not cid:
+            raise ValueError("Pinata response did not include IpfsHash")
+        response["attestation"].update({"metadataURI": f"ipfs://{cid}", "pinataCid": cid})
+    except Exception as exc:
+        response.setdefault("riskFlags", []).append("pinata_upload_failed")
+        response["attestation"].update({"metadataURI": "", "status": "blocked", "reason": str(exc)[:300]})
 
 
 class VerifyRequestHandler(BaseHTTPRequestHandler):
@@ -810,19 +844,11 @@ class VerifyRequestHandler(BaseHTTPRequestHandler):
 
         settings = body.get("settings") if isinstance(body.get("settings"), dict) else {}
         enabled = settings.get("agents") if isinstance(settings.get("agents"), dict) else {}
-        configs = [config for config in MODEL_CONFIGS if enabled.get(config["provider"].lower(), True)]
-        unavailable_models = [config["model"] for config in configs if config["model"] not in available_models]
-        if unavailable_models:
-            _json_response(self, 502, {
-                "status": "error",
-                "error": "Configured model IDs are not available from the Gonka broker. Update the GONKA_*_MODEL values to match GET /models.",
-                "unavailableModels": unavailable_models,
-                "availableModels": sorted(available_models),
-                "baseUrl": GONKA_BASE_URL,
-            })
-            return
+        requested_configs = [config for config in MODEL_CONFIGS if enabled.get(config["provider"].lower(), True)]
+        configs = [config for config in requested_configs if config["model"] in available_models]
+        unavailable_models = [config["model"] for config in requested_configs if config["model"] not in available_models]
         if len(configs) < 2:
-            _json_response(self, 400, {"status": "error", "error": "Enable at least two AI agents for adversarial verification."})
+            _json_response(self, 503, {"status": "error", "error": "Fewer than two configured models are currently available from Gonka.", "unavailableModels": unavailable_models, "availableModels": sorted(available_models), "baseUrl": GONKA_BASE_URL})
             return
         language = str(settings.get("language") or "en")[:20]
 
@@ -873,6 +899,18 @@ class VerifyRequestHandler(BaseHTTPRequestHandler):
         order = {config["provider"]: i for i, config in enumerate(MODEL_CONFIGS)}
         results.sort(key=lambda item: order.get(item.get("provider"), 99))
         response = _aggregate(claim, article, results, started_at)
+        if unavailable_models:
+            response.setdefault("riskFlags", []).append("unavailable_models:" + ",".join(unavailable_models))
+        if response.get("verdict") == "unverified":
+            response["attestation"].update({"status": "blocked", "reason": "unverified_results_cannot_be_attested"})
+        else:
+            response["attestation"]["contractVerdict"] = contract_verdict(response.get("verdict"))
+        _pin_verification(response)
+        response["timings"] = {
+            "totalMs": round((time.perf_counter() - started_at) * 1000),
+            "modelMs": max((item.get("latencyMs") or 0) for item in results) if results else 0,
+            "pinataConfigured": bool(os.environ.get("PINATA_JWT")),
+        }
         if article_error:
             response["articleError"] = article_error
             if "article_fetch_failed" not in response["riskFlags"]:

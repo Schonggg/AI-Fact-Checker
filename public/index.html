@@ -13,6 +13,7 @@
 
 <script crossorigin src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script>
 <script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://cdn.jsdelivr.net/npm/ethers@6.13.5/dist/ethers.umd.min.js"></script>
 
 <style>
 html, body, #root { height: 100%; margin: 0; }
@@ -266,6 +267,7 @@ const LIGHT = {
 };
 const MONO = "'JetBrains Mono',monospace";
 const SANS = "Inter,sans-serif";
+const WEB3_CONFIG = Object.freeze({ chainId: 421614, chainIdHex: "0x66eee", chainName: "Arbitrum Sepolia", explorerUrl: "https://sepolia.arbiscan.io", truthRegistryAddress: "0xb0DeedAe473dc32DD2B69bFdEc554e3b34119c58" });
 const DEFAULT_GONKA_SETTINGS = {
     consensus: "balanced",
     agents: { kimi: true, deepseek: true, minimax: true },
@@ -305,6 +307,8 @@ const NavCtx = createContext({
 const useNav = () => useContext(NavCtx);
 const VerifyCtx = createContext({ verification: null, phase: "idle", setVerification: () => { }, setPhase: () => { } });
 const useVerify = () => useContext(VerifyCtx);
+const WalletCtx = createContext({ address: "", setAddress: () => { } });
+const useWallet = () => useContext(WalletCtx);
 // ─── Shared network background overlay ───────────────────────────────────────
 function NetworkBg() {
     const { isDark } = useTh();
@@ -560,7 +564,6 @@ const ProfilePage = (function () {
         React.createElement("path", { d: "M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4" }),
         React.createElement("path", { d: "M4 6v12c0 1.1.9 2 2 2h14v-4" }),
         React.createElement("circle", { cx: "17", cy: "15", r: "1" })));
-    const DEMO_ADDRESS = "0x742d35Cc6634C0532925a3b844Bc454e4438f44e";
     const DEMO_USER = { name: "NexusVerifier_01", bio: "AI fact-checking researcher. Verified 234 claims on Gonka Protocol.", joined: "December 2024" };
     const REMAINING = 8234;
     const CONSUMED = 3766;
@@ -620,12 +623,13 @@ const ProfilePage = (function () {
     // ═══════════════════════════════════════════════════════════════════════════
     // PROFILE HEADER
     // ═══════════════════════════════════════════════════════════════════════════
-    function ProfileHeader({ user, onEdit }) {
+    function ProfileHeader({ user, onEdit, address }) {
         const { th } = useTh();
         const [copied, setCopied] = useState(false);
-        const short = `${DEMO_ADDRESS.slice(0, 6)}…${DEMO_ADDRESS.slice(-4)}`;
+        const short = address ? `${address.slice(0, 6)}…${address.slice(-4)}` : "Wallet not connected";
         const copy = () => {
-            navigator.clipboard.writeText(DEMO_ADDRESS).catch(() => { });
+            if (address)
+                navigator.clipboard.writeText(address).catch(() => { });
             setCopied(true);
             setTimeout(() => setCopied(false), 1800);
         };
@@ -650,7 +654,7 @@ const ProfilePage = (function () {
                                         background: copied ? `${th.success}12` : "transparent" } },
                                     React.createElement(IcCopy, { c: copied ? th.success : th.muted }),
                                     copied ? "Copied!" : "Copy"),
-                                React.createElement("span", { className: "text-[11px] px-2 py-1 rounded-md", style: { fontFamily: MONO, color: th.accent, background: `${th.accent}12`, border: `1px solid ${th.accent}25` } }, "Base Mainnet")),
+                                React.createElement("span", { className: "text-[11px] px-2 py-1 rounded-md", style: { fontFamily: MONO, color: th.accent, background: `${th.accent}12`, border: `1px solid ${th.accent}25` } }, "Arbitrum Sepolia")),
                             React.createElement("p", { className: "text-[11px]", style: { color: th.muted, fontFamily: MONO } },
                                 "Member since ",
                                 user.joined,
@@ -859,6 +863,7 @@ const ProfilePage = (function () {
     // ═══════════════════════════════════════════════════════════════════════════
     function ProfilePage() {
         const { th, isDark } = useTh();
+        const { address } = useWallet();
         const { setPage } = useNav();
         const [user, setUser] = useState(DEMO_USER);
         const [editing, setEditing] = useState(false);
@@ -872,7 +877,7 @@ const ProfilePage = (function () {
                             "Back to Home"),
                         React.createElement("span", { style: { color: th.border } }, "\u00B7"),
                         React.createElement("span", { className: "text-[11px]", style: { fontFamily: MONO, color: th.muted } }, "Profile")),
-                    React.createElement(ProfileHeader, { user: user, onEdit: () => setEditing(true) }),
+                    React.createElement(ProfileHeader, { user: user, address: address, onEdit: () => setEditing(true) }),
                     React.createElement("div", { className: "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" },
                         React.createElement(MetricCard, { label: "REMAINING TOKEN BALANCE", value: REMAINING.toLocaleString(), unit: "GNKA", sub: "Available for verification", trend: "+124 tokens today", trendUp: true, accent: th.accent }),
                         React.createElement(MetricCard, { label: "ESTIMATED FIAT VALUE", value: `$${fiatVal}`, unit: "USD", sub: `At $${GNKA_USD.toFixed(2)}/GNKA · live rate`, trend: "+$6.20 today", trendUp: true, accent: "#10B981" }),
@@ -1430,10 +1435,13 @@ const WALLETS = [
 function WalletModal({ onClose, onConnect }) {
     const { th } = useTh();
     const [connecting, setConnecting] = useState(null);
+    const [error, setError] = useState(null);
     const handleConnect = async (id) => {
         setConnecting(id);
-        await new Promise(r => setTimeout(r, 1400));
-        onConnect(id);
+        setError(null);
+        try { await onConnect(id); onClose(); }
+        catch (err) { setError(err && err.message ? err.message : "Wallet connection failed."); }
+        finally { setConnecting(null); }
     };
     return (React.createElement("div", { className: "fixed inset-0 z-50 flex items-center justify-center overlay-in", style: { background: "rgba(0,0,0,0.72)", backdropFilter: "blur(6px)" }, onClick: e => e.target === e.currentTarget && onClose() },
         React.createElement("div", { className: "w-full max-w-sm mx-4 rounded-2xl overflow-hidden modal-in", style: { background: th.card, border: `1px solid ${th.border}`, boxShadow: "0 24px 64px rgba(0,0,0,0.5)" } },
@@ -1453,6 +1461,7 @@ function WalletModal({ onClose, onConnect }) {
                     React.createElement("p", { className: "text-sm font-semibold", style: { color: th.text, fontFamily: MONO } }, w.name),
                     React.createElement("p", { className: "text-[11px] mt-0.5", style: { color: th.muted } }, connecting === w.id ? "Connecting…" : w.desc)),
                 !connecting && React.createElement(IconChevronRight, { c: th.muted }))))),
+            error && React.createElement("p", { className: "px-6 pb-3 text-[10px] leading-relaxed", style: { color: th.err, fontFamily: MONO } }, error),
             React.createElement("div", { className: "px-6 py-4 border-t", style: { borderColor: th.border } },
                 React.createElement("p", { className: "text-center text-[10px]", style: { color: th.muted } },
                     "By connecting, you agree to the ",
@@ -1524,19 +1533,34 @@ const TICKER_ITEMS = [
 ];
 function Header() {
     const { th, isDark, setDark } = useTh();
+    const { address, setAddress } = useWallet();
     const { page, setPage } = useNav();
     const [walletPhase, setWalletPhase] = useState("idle");
     const [walletAddr, setWalletAddr] = useState("");
     const [navModal, setNavModal] = useState(null);
-    const handleConnect = (id) => {
-        var _a;
-        const addresses = {
-            metamask: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e",
-            walletconnect: "0x1aB2c3D4e5F6a7B8c9D0e1F2a3B4c5D6e7F8a9B0",
-            coinbase: "0xA1b2C3d4E5f6A7B8c9D0e1F2A3b4C5d6E7f8A9b0",
-        };
-        setWalletAddr((_a = addresses[id]) !== null && _a !== void 0 ? _a : addresses.metamask);
+    const handleConnect = async () => {
+        if (!window.ethereum)
+            throw new Error("No browser wallet detected. Install MetaMask or Coinbase Wallet.");
+        const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+        const walletAddress = accounts && accounts[0];
+        if (!walletAddress)
+            throw new Error("The wallet did not return an account.");
+        const currentChain = await window.ethereum.request({ method: "eth_chainId" });
+        if (String(currentChain).toLowerCase() !== WEB3_CONFIG.chainIdHex) {
+            try {
+                await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: WEB3_CONFIG.chainIdHex }] });
+            }
+            catch (error) {
+                if (error && error.code === 4902)
+                    await window.ethereum.request({ method: "wallet_addEthereumChain", params: [{ chainId: WEB3_CONFIG.chainIdHex, chainName: WEB3_CONFIG.chainName, nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: ["https://sepolia-rollup.arbitrum.io/rpc"], blockExplorerUrls: [WEB3_CONFIG.explorerUrl] }] });
+                else
+                    throw new Error("Please approve switching your wallet to Arbitrum Sepolia.");
+            }
+        }
+        setWalletAddr(walletAddress);
+        setAddress(walletAddress);
         setWalletPhase("connected");
+        return walletAddress;
     };
     return (React.createElement(React.Fragment, null,
         React.createElement("header", { className: "sticky top-0 z-40 border-b", style: { background: th.card, backdropFilter: "blur(16px)", borderColor: th.border } },
@@ -1555,7 +1579,7 @@ function Header() {
                 ].map(({ label, action }) => (React.createElement("button", { key: label, onClick: action, className: "nav-link text-[11px] tracking-widest opacity-70", style: { fontFamily: MONO, color: th.text, background: "none", border: "none", cursor: "pointer", padding: 0 } }, label)))),
                 React.createElement("div", { className: "flex items-center gap-3" },
                     React.createElement("button", { onClick: () => setDark(!isDark), className: "w-9 h-9 flex items-center justify-center rounded-lg transition-all", style: { border: `1px solid ${th.border}`, background: "transparent" } }, isDark ? React.createElement(IconSun, { c: th.muted }) : React.createElement(IconMoon, { c: th.muted })),
-                    walletPhase === "connected" ? (React.createElement(UserModule, { address: walletAddr, onDisconnect: () => { setWalletPhase("idle"); setWalletAddr(""); setPage("home"); } })) : (React.createElement("button", { onClick: () => setWalletPhase("modal"), className: "text-[11px] px-4 py-2 tracking-widest border transition-colors", style: { fontFamily: MONO, borderColor: th.accent, color: th.accent, background: "transparent" }, onMouseEnter: e => { e.currentTarget.style.background = `${th.accent}12`; }, onMouseLeave: e => { e.currentTarget.style.background = "transparent"; } }, "CONNECT WALLET")))),
+                    walletPhase === "connected" ? (React.createElement(UserModule, { address: walletAddr, onDisconnect: () => { setWalletPhase("idle"); setWalletAddr(""); setAddress(""); setPage("home"); } })) : (React.createElement("button", { onClick: () => setWalletPhase("modal"), className: "text-[11px] px-4 py-2 tracking-widest border transition-colors", style: { fontFamily: MONO, borderColor: th.accent, color: th.accent, background: "transparent" }, onMouseEnter: e => { e.currentTarget.style.background = `${th.accent}12`; }, onMouseLeave: e => { e.currentTarget.style.background = "transparent"; } }, "CONNECT WALLET")))),
             React.createElement("div", { className: "border-t overflow-hidden py-1.5", style: { borderColor: th.border, background: `${th.accent}05` } },
                 React.createElement("div", { className: "flex whitespace-nowrap ticker-track", style: { width: "200%" } }, [1, 2].map(rep => (React.createElement("div", { key: rep, className: "flex gap-10 px-6 text-[10px]", style: { fontFamily: MONO } }, TICKER_ITEMS.map(t => (React.createElement("span", { key: t.label, style: { color: t.ok ? th.success : th.muted } },
                     "\u25C6 ",
@@ -1569,7 +1593,7 @@ function Header() {
 // ═══════════════════════════════════════════════════════════════════════════
 function ClaimInput() {
     const { th } = useTh();
-    const [text, setText] = useState("https://jamesclear.com/five-step-creative-process");
+    const [text, setText] = useState("");
     const [loading, setLoading] = useState(false);
     const [verifyStartedAt, setVerifyStartedAt] = useState(Date.now());
     const [result, setResult] = useState(null);
@@ -1604,6 +1628,8 @@ function ClaimInput() {
             if (clip && clip.trim()) {
                 setText(clip.trim());
                 setResult(null);
+                setVerification(null);
+                setPhase("idle");
                 setError(null);
                 inputRef.current?.focus();
             }
@@ -1875,11 +1901,8 @@ function TruthGauge({ score }) {
 // RADAR CHART
 // ═══════════════════════════════════════════════════════════════════════════
 const RADAR = [
-    { label: "FACTUAL", value: 87 },
-    { label: "SOURCES", value: 73 },
-    { label: "LOGIC", value: 91 },
-    { label: "BIAS", value: 65 },
-    { label: "CONSENSUS", value: 82 },
+    { label: "FACTUAL", value: 0 }, { label: "SOURCES", value: 0 },
+    { label: "LOGIC", value: 0 }, { label: "BIAS", value: 0 }, { label: "CONSENSUS", value: 0 },
 ];
 function RadarChart({ data = RADAR }) {
     const { th } = useTh();
@@ -2287,7 +2310,7 @@ function HomePage() {
     const [minted, setMinted] = useState(false);
     const [selectedEco, setSelectedEco] = useState(null);
     const { verification, phase } = useVerify();
-    const score = verification ? verification.truthScore || 0 : 87;
+    const score = verification ? verification.truthScore ?? null : null;
     const metrics = verification?.metrics || {};
     const radarData = verification ? [
         { label: "FACTUAL", value: metrics.factualAccuracy || 0 },
@@ -2296,7 +2319,7 @@ function HomePage() {
         { label: "BIAS", value: metrics.biasNeutrality || 0 },
         { label: "CONSENSUS", value: metrics.consensus || 0 },
     ] : RADAR;
-    const sources = verification ? (verification.references || []) : SOURCES;
+    const sources = verification ? (verification.references || []) : [];
     const terminalData = buildTerminalData(verification, phase);
     const verdictInfo = verdictDisplay(verification?.verdict);
     const certRows = attestationRows(verification);
@@ -2345,10 +2368,10 @@ function HomePage() {
                             React.createElement("span", { className: "font-bold", style: { color: verification ? th.success : th.muted } }, verification ? `${verification.consensus || "Consensus calculated"} — ${verdictInfo.label}` : "WAITING FOR LIVE CLAIM"))),
                     React.createElement("span", { className: "text-[11px]", style: { color: th.muted, fontFamily: MONO } },
                         "AVG CONFIDENCE: ",
-                        React.createElement("span", { style: { color: th.accent } }, verification ? `${verification.confidence || 0}%` : "92.0%"),
+                        React.createElement("span", { style: { color: th.accent } }, verification ? `${verification.confidence || 0}%` : "—"),
                         " · ",
                         "LATENCY: ",
-                        React.createElement("span", { style: { color: th.accent } }, verification ? `${verification.latencyMs || 0} ms` : "1,842 ms"))))),
+                        React.createElement("span", { style: { color: th.accent } }, verification ? `${verification.latencyMs || 0} ms` : "—"))))),
         React.createElement("section", { className: "relative px-6 pb-28 overflow-hidden" },
             React.createElement(LivingBackground, null),
             React.createElement("div", { className: "absolute inset-x-0 top-0 h-64 pointer-events-none", style: { background: `radial-gradient(ellipse at 50% 0%,${th.accent}07 0%,transparent 70%)` } }),
@@ -2377,9 +2400,9 @@ function HomePage() {
                                 React.createElement("p", { className: "text-[11px] tracking-widest mb-4", style: { fontFamily: MONO, color: th.muted } }, "TRUTH SCORE"),
                                 React.createElement(TruthGauge, { score: score }),
                                 React.createElement("div", { className: "mt-6 w-full space-y-3" }, [
-                                    { label: "Factual Accuracy", val: metrics.factualAccuracy ?? 94, color: th.success },
-                                    { label: "Source Trust", val: metrics.sourceQuality ?? 87, color: th.accent },
-                                    { label: "Bias Neutrality", val: metrics.biasNeutrality ?? 12, color: metrics.biasNeutrality ? th.success : th.err },
+                                    { label: "Factual Accuracy", val: metrics.factualAccuracy ?? null, color: th.success },
+                                    { label: "Source Trust", val: metrics.sourceQuality ?? null, color: th.accent },
+                                    { label: "Bias Neutrality", val: metrics.biasNeutrality ?? null, color: metrics.biasNeutrality ? th.success : th.err },
                                 ].map(row => (React.createElement("div", { key: row.label, className: "flex items-center gap-3" },
                                     React.createElement("span", { className: "text-[10px] w-32 shrink-0", style: { fontFamily: MONO, color: th.muted } }, row.label),
                                     React.createElement("div", { className: "flex-1 h-[3px] rounded-full", style: { background: th.border } },
@@ -2427,9 +2450,9 @@ function HomePage() {
                                         React.createElement("div", null,
                                             React.createElement("p", { className: "text-[10px] font-bold tracking-wider", style: { fontFamily: MONO, color: th.success } }, `VERDICT: ${verification ? verdictInfo.label : "DEMO"}`),
                                             React.createElement("p", { className: "text-[9px]", style: { color: th.muted } }, verification ? `Score: ${verification.truthScore || 0}/100 · Confidence: ${verification.confidence || 0}%` : "Run verification to populate live result"))),
-                                    React.createElement("button", { onClick: () => verification && setMinted(true), disabled: !verification, className: "mint-btn w-full py-3.5 text-[11px] font-bold tracking-[0.2em] rounded-lg relative z-20", style: { fontFamily: MONO, color: th.accentFg, opacity: verification ? 1 : 0.55, cursor: verification ? "pointer" : "not-allowed" } }, minted ? "✓ ATTESTATION MINTED" : "MINT EAS ATTESTATION"),
+                                    React.createElement("button", { onClick: () => verification && setMinted(true), disabled: !verification, className: "mint-btn w-full py-3.5 text-[11px] font-bold tracking-[0.2em] rounded-lg relative z-20", style: { fontFamily: MONO, color: th.accentFg, opacity: verification ? 1 : 0.55, cursor: verification ? "pointer" : "not-allowed" } }, minted ? "✓ TRUTHREGISTRY READY" : "PREPARE TRUTHREGISTRY ATTESTATION"),
                                     minted && (React.createElement("p", { className: "text-center text-[10px] mt-2", style: { fontFamily: MONO, color: th.success } }, `tx: ${shortHash(verification?.attestation?.evidenceHash, 8, 6)} · Base Mainnet`))))))),
-                React.createElement(VerificationSources, { sources: sources }))),
+                verification && sources.length > 0 && React.createElement(VerificationSources, { sources: sources }))),
         React.createElement("footer", { className: "border-t px-6 py-7", style: { borderColor: th.border } },
             React.createElement("div", { className: "max-w-7xl mx-auto flex flex-wrap gap-4 items-center justify-between" },
                 React.createElement("span", { className: "text-[10px]", style: { fontFamily: MONO, color: th.muted } }, "\u00A9 2024 GONKA PROTOCOL // TRUTH ON-CHAIN"),
@@ -2448,15 +2471,17 @@ function App() {
     const th = isDark ? DARK : LIGHT;
     const [verification, setVerification] = useState(null);
     const [phase, setPhase] = useState("idle");
+    const [walletAddress, setWalletAddress] = useState("");
     return (React.createElement(ThCtx.Provider, { value: { th, isDark, setDark: setIsDark } },
         React.createElement(NavCtx.Provider, { value: { page, setPage, showSettings, setShowSettings } },
             React.createElement(VerifyCtx.Provider, { value: { verification, phase, setVerification, setPhase } },
+                React.createElement(WalletCtx.Provider, { value: { address: walletAddress, setAddress: setWalletAddress } },
                 React.createElement("div", { className: "min-h-screen overflow-x-hidden", style: { background: th.bg, color: th.text, fontFamily: SANS, transition: "background 0.25s,color 0.25s" } },
                     React.createElement(Header, null),
                     page === "profile" ? React.createElement(ProfilePage, null) :
                         page === "dashboard" ? React.createElement(DashboardPage, null) :
                             React.createElement(HomePage, null),
-                    showSettings && React.createElement(SettingsModal, null))))));
+                    showSettings && React.createElement(SettingsModal, null)))))));
 }
 // trigger HMR update
 // trigger HMR reload
