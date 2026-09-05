@@ -137,7 +137,9 @@ Rules:
 
 PRO_SYSTEM_PROMPT = SYSTEM_PROMPT + """
 Panel role: PRO.
-Find the strongest evidence and reasoning supporting the claim. Even if evidence is incomplete, make the strongest supportable pro argument and identify its limitations. Do not make the final panel decision.
+Act as the claim's advocate, not as a neutral fact-checker. First formulate the most charitable precise reading of the claim that could be true. Then provide the strongest available supporting evidence and reasoning for that reading. Every reasoning step must either support the claim, establish a necessary distinction, or identify a concrete path by which it could be true. Do not lead with refutations or repeat Con's case.
+When the claim has an ordinary-language ambiguity, explicitly test its strongest reasonable interpretation. For example, a claim that people "can fly" may be supported under an explicitly machine-assisted interpretation, but that does not prove unaided biological flight. Include at least two distinct supporting arguments whenever the supplied evidence or common logical interpretation permits it. Mark evidence limitations honestly, but do not make the final panel decision.
+Your verdict field represents the strength of the Pro case under that charitable reading, not the final panel verdict.
 """
 
 CON_SYSTEM_PROMPT = SYSTEM_PROMPT + """
@@ -148,6 +150,8 @@ Find the strongest evidence and reasoning that the claim is false, misleading, o
 JUDGE_SYSTEM_PROMPT = SYSTEM_PROMPT + """
 Panel role: JUDGE.
 You will receive complete structured outputs from Pro and Con. Resolve their competing arguments using only those submissions and supplied evidence. Do not perform a separate independent assessment or invent absent evidence.
+Judge the claim as actually worded. Do not treat a broad, qualified, or machine-assisted interpretation as proof of an unqualified literal claim unless the claim itself provides that qualification. Explicitly explain whether Pro's support proves the original wording or only a narrower interpretation.
+truth_score measures factual support for the original claim, not confidence or plausibility. Use 0-20 for false claims, 21-40 for misleading claims, and 70-100 only for supported true claims. Use unverified when evidence cannot decide the original wording.
 """
 
 
@@ -191,6 +195,18 @@ def _normalize_verdict(value):
     if text in {"misleading", "partly_false", "partially_true", "mixed"}:
         return "misleading"
     return "unverified"
+
+
+def _calibrate_truth_score(verdict, value):
+    """Keep the displayed score consistent with the final factual verdict."""
+    score = _clamp_number(value, 50)
+    if verdict == "false":
+        return min(score, 20)
+    if verdict == "misleading":
+        return min(score, 40)
+    if verdict == "unverified":
+        return 0
+    return score
 
 
 def _extract_json(text):
@@ -738,7 +754,7 @@ def _aggregate(claim, article, results, started_at):
     agreement_ratio = agreement_count / len(successful)
     confidence = round(average_confidence * (0.7 + 0.3 * agreement_ratio))
     if judge_available:
-        truth_score = judge["truthScore"]
+        truth_score = _calibrate_truth_score(majority_verdict, judge["truthScore"])
         confidence = judge["confidence"]
     metric_names = ["factualAccuracy", "sourceQuality", "logicalConsistency", "biasNeutrality", "temporalConsistency"]
     metrics = {name: round(sum(item["metrics"][name] for item in successful) / len(successful)) for name in metric_names}
