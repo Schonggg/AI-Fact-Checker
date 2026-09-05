@@ -737,7 +737,10 @@ def _aggregate(claim, article, results, started_at):
             ref["citedBy"] = [item["provider"]]
             references.append(ref)
 
-    summaries = [f"{item['provider']}: {item['summary']}" for item in successful if item.get("summary")]
+    overview_item = next((item for item in successful if item.get("verdict") == majority_verdict and not item.get("fell_back") and item.get("summary")), None)
+    if overview_item is None:
+        overview_item = next((item for item in successful if item.get("verdict") == majority_verdict and item.get("summary")), None)
+    overview_summary = overview_item.get("summary", "") if overview_item else "No model summary was returned."
     # 收集所有成功模型的 Gonka Request IDs（供合约存证）
     gonka_request_ids = [item.get("request_id", "") for item in successful if item.get("request_id")]
     attestation_status = "ready_to_mint" if len(gonka_request_ids) >= MIN_GONKA_PROOF_IDS else "blocked"
@@ -748,7 +751,7 @@ def _aggregate(claim, article, results, started_at):
         "claim": claim, "inputType": "url" if article else "text", "article": article,
         "verdict": majority_verdict, "truthScore": truth_score, "confidence": confidence,
         "consensus": f"{agreement_count}/{len(successful)} successful models agree; {len(successful)}/{total} models responded",
-        "summary": " ".join(summaries), "metrics": metrics, "models": results,
+        "summary": f"{majority_verdict.upper()} based on {agreement_count}/{len(successful)} successful models. {overview_summary}", "metrics": metrics, "models": results,
         "references": references[:20], "riskFlags": risk_flags[:20],
         "attestation": {"claimHash": claim_hash, "evidenceHash": evidence_hash, "schema": SCHEMA_ID, "network": CHAIN_NAME, "protocol": ATTESTATION_PROTOCOL, "uid": "pending", "status": attestation_status, "reason": attestation_reason,
                         "gonkaRequestIds": gonka_request_ids,  # 🌟 核心加分项
