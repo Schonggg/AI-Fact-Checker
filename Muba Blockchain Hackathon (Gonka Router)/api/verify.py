@@ -59,6 +59,7 @@ ARTICLE_TIMEOUT_SECONDS = int(os.environ.get("GONKA_ARTICLE_TIMEOUT", "15"))
 KIMI_TIMEOUT_SECONDS = int(os.environ.get("GONKA_KIMI_MODEL_TIMEOUT", "40"))
 # Vercel maxDuration 预算上限（秒），保证总耗时不被掐断
 MAX_TOTAL_BUDGET_SECONDS = int(os.environ.get("GONKA_TOTAL_BUDGET_SECONDS", "56"))
+ANALYSIS_STAGE_BUDGET_SECONDS = int(os.environ.get("GONKA_ANALYSIS_STAGE_BUDGET_SECONDS", "18"))
 # 降级兜底模型
 FALLBACK_MODEL = os.environ.get("GONKA_FALLBACK_MODEL", "MiniMaxAI/MiniMax-M2.7")
 PINATA_TIMEOUT_SECONDS = int(os.environ.get("PINATA_TIMEOUT", "8"))
@@ -698,6 +699,7 @@ def _aggregate(claim, article, results, started_at):
     evidence_hash = "0x" + hashlib.sha256(evidence_seed.encode("utf-8")).hexdigest()
     successful = [item for item in results if item.get("status") == "ok"]
     total = len(results)
+    judge = next((item for item in results if str(item.get("role", "")).startswith("Judge")), None)
     if not successful:
         model_errors = [
             f"{item.get('provider', 'Model')}: {item.get('error', 'unknown error')}"
@@ -719,17 +721,24 @@ def _aggregate(claim, article, results, started_at):
             "latencyMs": round((time.perf_counter() - started_at) * 1000),
         }
 
+    judge_available = bool(judge and judge.get("status") == "ok")
+    if judge_available:
+        majority_verdict = judge["verdict"]
+        agreement_count = sum(1 for item in successful if item.get("verdict") == majority_verdict)
+    else:
+        majority_verdict = "unverified"
+        agreement_count = 0
     verdict_counts = {name: 0 for name in ("true", "false", "misleading", "unverified")}
     for item in successful:
         verdict_counts[item["verdict"]] = verdict_counts.get(item["verdict"], 0) + 1
-    majority_verdict, agreement_count = max(verdict_counts.items(), key=lambda pair: pair[1])
     weights = [max(10, item["confidence"]) for item in successful]
     truth_score = round(sum(item["truthScore"] * weight for item, weight in zip(successful, weights)) / sum(weights))
     average_confidence = round(sum(item["confidence"] for item in successful) / len(successful))
     agreement_ratio = agreement_count / len(successful)
     confidence = round(average_confidence * (0.7 + 0.3 * agreement_ratio))
-    if agreement_count == 1 and len(successful) > 1:
-        majority_verdict = "unverified"
+    if judge_available:
+        truth_score = judge["truthScore"]
+        confidence = judge["confidence"]
     metric_names = ["factualAccuracy", "sourceQuality", "logicalConsistency", "biasNeutrality", "temporalConsistency"]
     metrics = {name: round(sum(item["metrics"][name] for item in successful) / len(successful)) for name in metric_names}
     metrics["consensus"] = round(agreement_ratio * 100)
@@ -762,21 +771,23 @@ def _aggregate(claim, article, results, started_at):
             ref["citedBy"] = [item["provider"]]
             references.append(ref)
 
-    overview_item = next((item for item in successful if item.get("verdict") == majority_verdict and not item.get("fell_back") and item.get("summary")), None)
+    overview_item = judge if judge_available else None
+    if overview_item is None:
+        overview_item = next((item for item in successful if item.get("verdict") == majority_verdict and not item.get("fell_back") and item.get("summary")), None)
     if overview_item is None:
         overview_item = next((item for item in successful if item.get("verdict") == majority_verdict and item.get("summary")), None)
     overview_summary = overview_item.get("summary", "") if overview_item else "No model summary was returned."
     # 收集所有成功模型的 Gonka Request IDs（供合约存证）
     gonka_request_ids = [item.get("request_id", "") for item in successful if item.get("request_id")]
-    attestation_status = "ready_to_mint" if len(gonka_request_ids) >= MIN_GONKA_PROOF_IDS else "blocked"
-    attestation_reason = "" if attestation_status == "ready_to_mint" else f"insufficient_gonka_proof_ids: need {MIN_GONKA_PROOF_IDS}, got {len(gonka_request_ids)}"
+    attestation_status = "ready_to_mint" if judge_available and len(gonka_request_ids) >= MIN_GONKA_PROOF_IDS else "blocked"
+    attestation_reason = "" if attestation_status == "ready_to_mint" else ("judge_result_required" if not judge_available else f"insufficient_gonka_proof_ids: need {MIN_GONKA_PROOF_IDS}, got {len(gonka_request_ids)}")
 
     return {
-        "id": f"gnk-{uuid.uuid4().hex[:10]}", "status": "ok" if len(successful) == total else "partial",
+        "id": f"gnk-{uuid.uuid4().hex[:10]}", "status": "ok" if judge_available and len(successful) == total else "partial",
         "claim": claim, "inputType": "url" if article else "text", "article": article,
         "verdict": majority_verdict, "truthScore": truth_score, "confidence": confidence,
-        "consensus": f"{agreement_count}/{len(successful)} successful models agree; {len(successful)}/{total} models responded",
-        "summary": f"{majority_verdict.upper()} based on {agreement_count}/{len(successful)} successful models. {overview_summary}", "metrics": metrics, "models": results,
+        "consensus": (f"Judge resolved the Pro/Con debate; {agreement_count}/{len(successful)} successful models align" if judge_available else "Judge did not return a valid decision; no final verdict was issued"),
+        "summary": (f"{majority_verdict.upper()} - Judge decision. {overview_summary}" if judge_available else "UNVERIFIED - the Judge did not return a valid decision, so Pro and Con outputs were not converted into a final verdict."), "metrics": metrics, "models": results,
         "references": references[:20], "riskFlags": risk_flags[:20],
         "attestation": {"claimHash": claim_hash, "evidenceHash": evidence_hash, "schema": SCHEMA_ID, "network": CHAIN_NAME, "protocol": ATTESTATION_PROTOCOL, "uid": "pending", "status": attestation_status, "reason": attestation_reason,
                         "gonkaRequestIds": gonka_request_ids,  # 🌟 核心加分项
@@ -922,8 +933,7 @@ class VerifyRequestHandler(BaseHTTPRequestHandler):
             except Exception as exc:
                 logging.warning(f"[search] web search stage failed (continuing without): {exc}")
 
-        judge_reserve = min(panel_configs["judge"]["timeout"], 25)
-        analysis_timeout = max(5, int(MAX_TOTAL_BUDGET_SECONDS - judge_reserve - (time.perf_counter() - started_at) - 2))
+        analysis_timeout = min(ANALYSIS_STAGE_BUDGET_SECONDS, max(5, int(MAX_TOTAL_BUDGET_SECONDS - (time.perf_counter() - started_at) - 2)))
         with ThreadPoolExecutor(max_workers=2) as executor:
             pro_future = executor.submit(_call_model, panel_configs["pro"], api_key, claim, article, language, search_results, timeout_override=analysis_timeout)
             con_future = executor.submit(_call_model, panel_configs["con"], api_key, claim, article, language, search_results, timeout_override=analysis_timeout)
