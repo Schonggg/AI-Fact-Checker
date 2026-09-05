@@ -2334,7 +2334,21 @@ function HomePage() {
             const contract = new window.ethers.Contract(WEB3_CONFIG.truthRegistryAddress, TRUTH_REGISTRY_WRITE_ABI, signer);
             const transaction = await contract.attestTruth(attestation.claimHash, Number(verification.truthScore), attestation.contractVerdict, attestation.gonkaRequestIds, attestation.metadataURI);
             setAttestState({ phase: "confirming", txHash: transaction.hash, error: "" });
-            await transaction.wait();
+            const receipt = await transaction.wait(1);
+            if (!receipt || receipt.status !== 1)
+                throw new Error("Transaction was not confirmed successfully on Arbitrum Sepolia.");
+            const signerAddress = (await signer.getAddress()).toLowerCase();
+            const attested = receipt.logs.some(log => {
+                try {
+                    const parsed = contract.interface.parseLog(log);
+                    return parsed && parsed.name === "TruthAttested" && parsed.args.claimHash === attestation.claimHash && String(parsed.args.attester).toLowerCase() === signerAddress;
+                }
+                catch (_) {
+                    return false;
+                }
+            });
+            if (!attested)
+                throw new Error("Transaction confirmed, but no matching TruthAttested event was found.");
             setVerification(current => ({ ...current, attestation: { ...current.attestation, status: "confirmed", txHash: transaction.hash, uid: transaction.hash } }));
             setAttestState({ phase: "confirmed", txHash: transaction.hash, error: "" });
         }
@@ -2494,6 +2508,7 @@ const TRUTH_REGISTRY_READ_ABI = [
 ];
 const TRUTH_REGISTRY_WRITE_ABI = [
     "function attestTruth(bytes32 claimHash, uint8 truthScore, string verdict, string[] gonkaRequestIds, string metadataURI) external returns (bool)",
+    "event TruthAttested(bytes32 indexed claimHash, uint8 truthScore, string verdict, string[] gonkaRequestIds, address indexed attester, uint256 timestamp)",
 ];
 function LiveProfilePage() {
     const { th } = useTh();
