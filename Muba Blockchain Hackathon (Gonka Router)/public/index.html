@@ -1511,21 +1511,8 @@ function Header() {
     const [walletAddr, setWalletAddr] = useState("");
     const [navModal, setNavModal] = useState(null);
     useEffect(() => {
-        if (!window.ethereum)
+        if (!window.ethereum || walletPhase !== "connected")
             return;
-        const refresh = async () => {
-            const accounts = await window.ethereum.request({ method: "eth_accounts" });
-            if (accounts && accounts[0]) {
-                setWalletAddr(accounts[0]);
-                setAddress(accounts[0]);
-                setWalletPhase("connected");
-            }
-            else {
-                setWalletAddr("");
-                setAddress("");
-                setWalletPhase("idle");
-            }
-        };
         const handleAccountsChanged = (accounts) => {
             const next = accounts && accounts[0] ? accounts[0] : "";
             setWalletAddr(next);
@@ -1533,9 +1520,8 @@ function Header() {
             setWalletPhase(next ? "connected" : "idle");
         };
         window.ethereum.on?.("accountsChanged", handleAccountsChanged);
-        refresh().catch(() => { });
         return () => window.ethereum.removeListener?.("accountsChanged", handleAccountsChanged);
-    }, []);
+    }, [walletPhase, setAddress]);
     const handleConnect = async () => {
         if (!window.ethereum)
             throw new Error("No browser wallet detected. Install MetaMask or another injected EVM wallet.");
